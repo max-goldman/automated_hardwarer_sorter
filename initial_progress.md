@@ -40,7 +40,7 @@ Not checked: mirroring (the calibration target detects it automatically) and mot
 
 ## Open hardware issues
 
-1. **Lighting flicker.** The pattern looks like lights that switch fully off for about 0.4 to 0.5 ms at a time, which is typical of PWM dimming. I could not rule out the camera itself. Question still open: how are the lights powered or dimmed? Running a dimmer at 100% or using a constant-current supply would likely fix it.
+1. **Lighting flicker.** *Update 2026-11-17: the user deferred this; the lighting will be fixed later, and the software assumes steady lighting until then.* The pattern looks like lights that switch fully off for about 0.4 to 0.5 ms at a time, which is typical of PWM dimming. I could not rule out the camera itself. Question still open: how are the lights powered or dimmed? Running a dimmer at 100% or using a constant-current supply would likely fix it.
 2. **Light level.** Gain does not work, so brightness must come from light or exposure. A 0.5 ms exposure (0.73 px of blur) needs roughly two to three times more light to reach the target belt level of 180.
 3. **Camera view.** During the last tests the camera saw a featureless surface with no dark belt edges, and by the end a black image (reading 0 of 255). The rig needs to be back in its working position with lights on before checkpoint 1.
 
@@ -95,7 +95,7 @@ Both are in place and tested. The next step was to finish milestone 1.
 - Add a command to build the flat-field from an empty-belt recording (the function exists; the command does not).
 - Open the GUI in a real window on the Mac and try each panel by hand.
 - Checkpoint 1 at the rig:
-  - Fix or explain the lighting flicker, and add light.
+  - Add light. (Flicker deferred by the user on 2026-11-17: the lighting will be fixed later; software assumes steady lighting.)
   - Run `uv run sorter calibrate target`, print at 100%, measure the scale bar.
   - In `uv run sorter gui`: set exposure, focus, capture three target views and solve scale, save belt edges.
   - With the belt running: record the empty belt (45 s), then two or three runs of the 30-part set, including parts placed on the seam.
@@ -222,7 +222,7 @@ Each "now" milestone ends with a checkpoint where the user runs a short checklis
 | --- | --- |
 | Fixed exposure on macOS | Resolved in milestone 0: works over UVC control requests |
 | Enough light at 1 ms or less | Measured low in milestone 0; lighting needs to be increased |
-| Lighting flicker (found in milestone 0) | Fix the lighting; the software also skips dimmed frames where it measures brightness |
+| Lighting flicker (found in milestone 0) | Deferred by the user (2026-11-17): lighting gets fixed in hardware later; the software assumes steady lighting and does not compensate for flicker |
 | Bolt-head facets as bright as the belt | Edge-plus-deviation segmentation; lighting recommendation at checkpoint 2 if outlines still break |
 | Parts on the seam (2 to 3% of parts against a 5% error budget) | Seam template subtraction in M2; on-seam accuracy reported separately |
 | Scheduler jitter under the interpreter lock | Measured in M3; separate process if needed |
