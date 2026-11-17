@@ -256,7 +256,7 @@ def test_frame_level_ignores_parts_but_follows_lighting():
     empty = frame_level(SyntheticRenderer(scene, []).render(0.5))
     with_parts = frame_level(
         SyntheticRenderer(
-            scene, [PartSpec("bolt_0375", 0.1, 1.0, 20), PartSpec("washer_0375", 0.3, 0.9)]
+            scene, [PartSpec("bolt_0312", 0.1, 1.0, 20), PartSpec("washer_0312", 0.3, 0.9)]
         ).render(0.5)
     )
     assert abs(with_parts - empty) < 0.03 * empty

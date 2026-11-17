@@ -164,7 +164,7 @@ def learned(rig):
 
 @pytest.mark.parametrize(
     ("kind", "ang"),
-    [("washer_0375", 0.0), ("washer_025", 0.0), ("nut_0375", 20.0), ("bolt_025", 130.0)],
+    [("washer_0312", 0.0), ("washer_025", 0.0), ("nut_0312", 20.0), ("bolt_025", 130.0)],
 )
 def test_part_on_seam_is_one_flagged_blob_with_nominal_area(rig, learned, kind, ang):
     h, k = learned
@@ -181,7 +181,7 @@ def test_part_on_seam_is_one_flagged_blob_with_nominal_area(rig, learned, kind, 
 def test_part_on_seam_without_template_is_flagged(rig):
     h = new_handler()
     t = t_for_seam_x(rig, 640.0)
-    part = part_at_seam_offset(rig[0], "washer_0375", t, 1.0, 0.0)
+    part = part_at_seam_offset(rig[0], "washer_0312", t, 1.0, 0.0)
     p = prep(rig, [part], t)
     out, obs = h.process(p, simple_segment(p))
     assert obs is not None and obs.present

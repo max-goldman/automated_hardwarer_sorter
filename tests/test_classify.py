@@ -17,36 +17,36 @@ LIB_PATH = Path(__file__).resolve().parents[1] / "config" / "parts_library.yaml"
 # Measured values from task 007 (synthetic, blur+noise).
 NOMINAL: dict[PartClass, dict[str, float]] = {
     PartClass.BOLT_025: dict(
-        area_in2=0.45,
-        minrect_long_in=1.156,
-        minrect_short_in=0.506,
+        area_in2=0.3056,
+        minrect_long_in=1.17,
+        minrect_short_in=0.5057,
         hull_solidity=0.9,
-        circularity=0.4,
+        circularity=0.3,
         hex_harmonic=NAN,
-        across_flats_in=0.44,
-        across_corners_in=1.16,
+        across_flats_in=0.5057,
+        across_corners_in=1.17,
         hole_kind=0.0,
         hole_diameter_in=NAN,
-        shank_width_in=0.243,
-        head_width_in=0.5055,
-        head_length_in=0.155,
-        total_length_in=1.15,
+        shank_width_in=0.2431,
+        head_width_in=0.5054,
+        head_length_in=0.1688,
+        total_length_in=1.1643,
     ),
-    PartClass.BOLT_0375: dict(
-        area_in2=0.6,
-        minrect_long_in=1.235,
-        minrect_short_in=0.6505,
+    PartClass.BOLT_0312: dict(
+        area_in2=0.4029,
+        minrect_long_in=1.215,
+        minrect_short_in=0.5787,
         hull_solidity=0.9,
-        circularity=0.4,
+        circularity=0.338,
         hex_harmonic=NAN,
-        across_flats_in=0.56,
-        across_corners_in=1.24,
+        across_flats_in=0.5787,
+        across_corners_in=1.215,
         hole_kind=0.0,
         hole_diameter_in=NAN,
-        shank_width_in=0.367,
-        head_width_in=0.6503,
-        head_length_in=0.2335,
-        total_length_in=1.229,
+        shank_width_in=0.3055,
+        head_width_in=0.5783,
+        head_length_in=0.2116,
+        total_length_in=1.2089,
     ),
     PartClass.NUT_025: dict(
         area_in2=0.1662,
@@ -64,17 +64,17 @@ NOMINAL: dict[PartClass, dict[str, float]] = {
         head_length_in=NAN,
         total_length_in=NAN,
     ),
-    PartClass.NUT_0375: dict(
-        area_in2=0.2747,
-        minrect_long_in=0.649,
-        minrect_short_in=0.563,
+    PartClass.NUT_0312: dict(
+        area_in2=0.2161,
+        minrect_long_in=0.5756,
+        minrect_short_in=0.4999,
         hull_solidity=0.998,
-        circularity=0.917,
+        circularity=0.9169,
         hex_harmonic=0.058,
-        across_flats_in=0.5631,
-        across_corners_in=0.649,
+        across_flats_in=0.4999,
+        across_corners_in=0.5756,
         hole_kind=2.0,
-        hole_diameter_in=0.3059,
+        hole_diameter_in=0.25,
         shank_width_in=NAN,
         head_width_in=NAN,
         head_length_in=NAN,
@@ -90,23 +90,23 @@ NOMINAL: dict[PartClass, dict[str, float]] = {
         across_flats_in=0.624,
         across_corners_in=0.6251,
         hole_kind=1.0,
-        hole_diameter_in=0.2454,
+        hole_diameter_in=0.2486,
         shank_width_in=NAN,
         head_width_in=NAN,
         head_length_in=NAN,
         total_length_in=NAN,
     ),
-    PartClass.WASHER_0375: dict(
-        area_in2=0.5162,
-        minrect_long_in=0.811,
-        minrect_short_in=0.8106,
+    PartClass.WASHER_0312: dict(
+        area_in2=0.4407,
+        minrect_long_in=0.7493,
+        minrect_short_in=0.7493,
         hull_solidity=0.9987,
-        circularity=1.0,
+        circularity=1.0002,
         hex_harmonic=0.0,
-        across_flats_in=0.81,
-        across_corners_in=0.8117,
+        across_flats_in=0.7493,
+        across_corners_in=0.7493,
         hole_kind=1.0,
-        hole_diameter_in=0.3743,
+        hole_diameter_in=0.3139,
         shank_width_in=NAN,
         head_width_in=NAN,
         head_length_in=NAN,
@@ -151,14 +151,14 @@ def test_small_size_error_still_correct(clf: RangeClassifier, pc: PartClass, sca
 
 def test_washer_vs_nut_separable(clf: RangeClassifier) -> None:
     washer = dict(NOMINAL[PartClass.WASHER_025])
-    nut = NOMINAL[PartClass.NUT_0375]
+    nut = NOMINAL[PartClass.NUT_0312]
     # Same outer size: only outline and hole differ.
     for k in ("minrect_short_in", "minrect_long_in", "across_corners_in", "across_flats_in"):
         washer[k] = nut[k]
     washer["area_in2"] = nut["area_in2"]
     c = clf.classify(fused(washer), TrackFlag(0))
-    assert c.part_class is not PartClass.NUT_0375
-    assert clf.classify(fused(nut), TrackFlag(0)).part_class is PartClass.NUT_0375
+    assert c.part_class is not PartClass.NUT_0312
+    assert clf.classify(fused(nut), TrackFlag(0)).part_class is PartClass.NUT_0312
 
 
 def test_five_sixteenth_nut_never_confident(clf: RangeClassifier) -> None:
@@ -177,7 +177,7 @@ def test_five_sixteenth_nut_never_confident(clf: RangeClassifier) -> None:
 
 
 def test_unknown_big_part_out_of_scope(clf: RangeClassifier) -> None:
-    med = dict(NOMINAL[PartClass.WASHER_0375])
+    med = dict(NOMINAL[PartClass.WASHER_0312])
     med.update(area_in2=1.2, minrect_short_in=1.2, minrect_long_in=1.2)
     assert clf.classify(fused(med), TrackFlag(0)).verdict is Verdict.OUT_OF_SCOPE
 
@@ -221,7 +221,7 @@ def test_bad_flags_not_confident(clf: RangeClassifier, flag: TrackFlag) -> None:
 
 
 def test_merged_unresolved_even_if_off_library(clf: RangeClassifier) -> None:
-    med = dict(NOMINAL[PartClass.WASHER_0375])
+    med = dict(NOMINAL[PartClass.WASHER_0312])
     med.update(area_in2=2.0, minrect_short_in=1.5, minrect_long_in=1.5)
     assert clf.classify(fused(med), TrackFlag.MERGED).verdict is Verdict.UNRESOLVED
 
@@ -260,7 +260,7 @@ def test_library_validation_errors() -> None:
     raw["parts"]["nut_025"]["poses"]["flat"]["area_in2"] = [0.3, 0.1]
     with pytest.raises(ValueError):
         library_from_dict(raw)
-    del raw["parts"]["nut_0375"]
+    del raw["parts"]["nut_0312"]
     with pytest.raises(ValueError):
         library_from_dict(raw)
 
@@ -279,7 +279,7 @@ def _washer(od: float, idd: float) -> dict[str, float]:
     return med
 
 
-@pytest.mark.parametrize("od,idd", [(0.705, 0.0), (0.688, 0.344)])  # coin, washer_0312
+@pytest.mark.parametrize("od,idd", [(0.705, 0.0), (0.688, 0.344)])  # coin, washer_oos_0688
 def test_synthetic_out_of_scope_items_never_confident(
     clf: RangeClassifier, od: float, idd: float
 ) -> None:

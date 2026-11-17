@@ -3,9 +3,16 @@
 # |value - centre| / half-width (0 at centre, 1 at the range edge); a pose's score is its
 # worst feature. A required feature whose fused value is NaN (unavailable) makes the pose
 # not fit (score inf), never a pass. edge_sharpness is a focus signal and is not used here.
-# Ranges come from measured synthetic values (nominal dims, generous tolerance). Upper edges
-# allow ~10% parallax on tall parts (bolt heads). Re-derive from real captures with
-# classify.derive_ranges. Poses not listed here (e.g. a bolt standing up, a washer on edge)
+# Ranges come from measured synthetic values (see synthetic.PART_DIMS). The in-scope sizes are
+# 1/4-20 and 5/16-18, only ~0.06 in apart in most size features (nut AF 0.438/0.500, washer OD
+# 0.625/0.750, bolt head 0.505/0.578 across corners), so each range is centred on the synthetic
+# measurement with a half-width of about 0.03 in (0.02 on nut thickness), placed so that
+# neighbouring sizes miss it by more than 1.5 half-widths where the features allow and the 3/8
+# near-misses (nut AF 0.563, washer OD 0.812, bolt shank 0.367 / head 0.650) score > 1 against
+# 5/16 and so never get a bin. Trade-off: bolt-head ranges therefore allow only ~+6% parallax,
+# less than the old ~10%; confirm on real captures. Nuts are nylon-insert lock nuts: the side
+# pose height is the nyloc thickness (user calipers: 1/4 0.311, 5/16 0.347 in).
+# Re-derive from real captures with classify.derive_ranges. Poses not listed here (e.g. a bolt standing up, a washer on edge)
 # fall out of scope and go to MISC. Future note: M6 vs 1/4 differ by ~0.01 in, which this
 # library cannot separate; that needs thread pitch (reserved feature, not built).
 # hole_kind is a categorical median code (0 none / 1 bright / 2 dark); ranges bracket the code
@@ -18,67 +25,67 @@ parts:
     poses:
       side:
         minrect_long_in: [1.05, 1.28]
-        minrect_short_in: [0.45, 0.58]
-        shank_width_in: [0.20, 0.30]
-        head_width_in: [0.44, 0.58]
-        head_length_in: [0.10, 0.21]
+        minrect_short_in: [0.45, 0.54]
+        shank_width_in: [0.21, 0.275]
+        head_width_in: [0.45, 0.54]
+        head_length_in: [0.115, 0.195]
         total_length_in: [1.05, 1.28]
-  bolt_0375:
-    display_name: "3/8-16 x 1 hex bolt"
+  bolt_0312:
+    display_name: "5/16-18 x 1 hex bolt"
     output_code: 2
     poses:
       side:
-        minrect_long_in: [1.15, 1.38]
-        minrect_short_in: [0.59, 0.73]
-        shank_width_in: [0.32, 0.43]
-        head_width_in: [0.59, 0.73]
-        head_length_in: [0.17, 0.29]
-        total_length_in: [1.15, 1.38]
+        minrect_long_in: [1.10, 1.33]
+        minrect_short_in: [0.545, 0.615]
+        shank_width_in: [0.28, 0.335]
+        head_width_in: [0.545, 0.615]
+        head_length_in: [0.17, 0.255]
+        total_length_in: [1.10, 1.33]
   nut_025:
-    display_name: "1/4-20 hex nut"
+    display_name: "1/4-20 nyloc nut"
     output_code: 3
     poses:
       flat:
-        area_in2: [0.14, 0.20]
-        across_flats_in: [0.40, 0.49]
+        area_in2: [0.145, 0.19]
+        across_flats_in: [0.405, 0.47]
         hex_harmonic: [0.025, 0.095]
         circularity: [0.85, 0.97]
         hole_kind: [1.5, 2.5]
-      side:  # rectangle outline: width = across flats or corners, height = 0.219 thick
-        minrect_long_in: [0.40, 0.54]
-        minrect_short_in: [0.17, 0.27]
+      side:  # rectangle outline: width = across flats or corners, height = 0.311 nyloc thick
+        minrect_long_in: [0.41, 0.53]
+        minrect_short_in: [0.285, 0.33]
         hole_kind: [-0.5, 0.5]
-  nut_0375:
-    display_name: "3/8-16 hex nut"
+  nut_0312:
+    display_name: "5/16-18 nyloc nut"
     output_code: 4
     poses:
       flat:
-        area_in2: [0.23, 0.32]
-        across_flats_in: [0.52, 0.62]
+        area_in2: [0.19, 0.25]
+        across_flats_in: [0.47, 0.535]
         hex_harmonic: [0.025, 0.095]
         circularity: [0.85, 0.97]
         hole_kind: [1.5, 2.5]
-      side:  # rectangle outline: width = across flats or corners, height = 0.328 thick
-        minrect_long_in: [0.52, 0.69]
-        minrect_short_in: [0.27, 0.38]
+      side:  # rectangle outline: width = across flats or corners, height = 0.347 nyloc thick
+        minrect_long_in: [0.47, 0.60]
+        minrect_short_in: [0.33, 0.365]
         hole_kind: [-0.5, 0.5]
   washer_025:
     display_name: "1/4 flat washer"
     output_code: 5
     poses:
       flat:
-        area_in2: [0.27, 0.34]
-        minrect_short_in: [0.59, 0.67]
+        area_in2: [0.278, 0.337]
+        minrect_short_in: [0.595, 0.655]
         hex_harmonic: [-0.03, 0.03]
         circularity: [0.95, 1.05]
         hole_kind: [0.5, 1.5]
-  washer_0375:
-    display_name: "3/8 flat washer"
+  washer_0312:
+    display_name: "5/16 flat washer"
     output_code: 6
     poses:
       flat:
-        area_in2: [0.46, 0.58]
-        minrect_short_in: [0.77, 0.86]
+        area_in2: [0.407, 0.478]
+        minrect_short_in: [0.72, 0.78]
         hex_harmonic: [-0.03, 0.03]
         circularity: [0.95, 1.05]
         hole_kind: [0.5, 1.5]

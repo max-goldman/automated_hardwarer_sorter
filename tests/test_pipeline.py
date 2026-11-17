@@ -26,7 +26,7 @@ from hwsorter.vision.features import feature_names
 
 START_NS = 1_000_000_000
 LEFT_EDGE_IN = -1.7425  # belt-plane x of the left image edge (px 0) for the 367 px/in scene
-BOLT_KINDS = ("bolt_025", "bolt_0375")
+BOLT_KINDS = ("bolt_025", "bolt_0312")
 
 
 @dataclass
@@ -176,9 +176,9 @@ def test_smoke_non_bolt_parts_classified_and_sent(rig_noseam, tmp_path):
     decision-log record kinds, snapshot, crops and a full-frame reference saved."""
     parts = [
         PartSpec("nut_025", 0.3, 1.0, 10.0),
-        PartSpec("nut_0375", 1.0, 1.0, 20.0),
+        PartSpec("nut_0312", 1.0, 1.0, 20.0),
         PartSpec("washer_025", 1.7, 1.0, 0.0),
-        PartSpec("washer_0375", 2.4, 1.0, 0.0),
+        PartSpec("washer_0312", 2.4, 1.0, 0.0),
     ]
     run = run_scene(rig_noseam, parts, session_dir=tmp_path)
     check_singulated(run, parts, min_accuracy=1.0)
@@ -207,7 +207,7 @@ def test_smoke_non_bolt_parts_classified_and_sent(rig_noseam, tmp_path):
 
 def test_snapshot_reports_live_tracks_and_skips(rig_noseam):
     cfg = load_config()
-    parts = [PartSpec("washer_0375", 0.3, 1.0, 0.0)]
+    parts = [PartSpec("washer_0312", 0.3, 1.0, 0.0)]
     scene = rig_noseam.scene
     renderer = SyntheticRenderer(scene, parts)
     pl = Pipeline(
@@ -272,9 +272,9 @@ def test_touching_parts_rework_or_same_class(rig_noseam):
     near = 0.9 / speed  # centres 0.9 in apart: edge gap well under rework_gap_in
     parts = [
         PartSpec("washer_025", 0.3, 1.0, 0.0),
-        PartSpec("nut_0375", 0.3 + near, 1.0, 20.0),  # pair A: mixed -> REWORK
-        PartSpec("washer_0375", 2.2, 1.0, 0.0),
-        PartSpec("washer_0375", 2.2 + 1.3 / speed, 1.0, 0.0),  # pair B: same class
+        PartSpec("nut_0312", 0.3 + near, 1.0, 20.0),  # pair A: mixed -> REWORK
+        PartSpec("washer_0312", 2.2, 1.0, 0.0),
+        PartSpec("washer_0312", 2.2 + 1.3 / speed, 1.0, 0.0),  # pair B: same class
         PartSpec("nut_025", 4.2, 1.0, 5.0),  # a lone part after them
     ]
     assert 0.9 - 0.4 < gap
@@ -283,7 +283,7 @@ def test_touching_parts_rework_or_same_class(rig_noseam):
     assert set(groups) == {(1, 2), (3, 4), (5,)}, groups.keys()
     assert groups[(1, 2)]["output"] == "rework" and groups[(1, 2)]["rule"] == "rework"
     assert (
-        groups[(3, 4)]["output"] == "washer_0375" and groups[(3, 4)]["rule"] == "group_same_class"
+        groups[(3, 4)]["output"] == "washer_0312" and groups[(3, 4)]["rule"] == "group_same_class"
     )
     assert groups[(5,)]["output"] == "nut_025"
     sends = run.records("send")
@@ -310,7 +310,7 @@ def test_frame_stride_skips_segmentation_and_caps_features(rig_noseam, monkeypat
 
     monkeypatch.setattr(pipeline_mod, "segment", spy_segment)
     monkeypatch.setattr(pipeline_mod, "extract", spy_extract)
-    parts = [PartSpec("washer_0375", 0.3, 1.0, 0.0), PartSpec("nut_025", 1.2, 1.0, 10.0)]
+    parts = [PartSpec("washer_0312", 0.3, 1.0, 0.0), PartSpec("nut_025", 1.2, 1.0, 10.0)]
     run = run_scene(rig_noseam, parts, cfg=cfg)
 
     assert seen_segment and all(s % stride == 0 for s in seen_segment)
@@ -322,7 +322,7 @@ def test_frame_stride_skips_segmentation_and_caps_features(rig_noseam, monkeypat
     assert len(parts_rec) == 2
     for rec in parts_rec:
         assert 3 <= rec["n_frames"] <= cfg.pipeline.max_feature_frames
-    assert [g["output"] for g in run.records("group")] == ["washer_0375", "nut_025"]
+    assert [g["output"] for g in run.records("group")] == ["washer_0312", "nut_025"]
 
 
 def test_stride_one_processes_every_frame(rig_noseam, monkeypatch):
@@ -410,12 +410,12 @@ def test_seam_alone_never_produces_output():
     ),
 )
 def test_bolt_on_seam_is_one_part_not_split():
-    """bolt_0375 lying across the seam, with the real segment(): a seam template is learned on
+    """bolt_0312 lying across the seam, with the real segment(): a seam template is learned on
     the part-free first lap, then the bolt is tracked as ONE part. It must never go to a
     wrong class bin, and the seam must not produce a part of its own."""
     rig = lap_rig()
     t_bolt = seam_t_enter(rig.scene, 2)
-    parts = [PartSpec("bolt_0375", t_bolt, 1.0, 0.0)]
+    parts = [PartSpec("bolt_0312", t_bolt, 1.0, 0.0)]
     run = run_scene(rig, parts, tail_s=1.5)
     recs = run.records("part")
     assert len(recs) == 1, f"bolt on the seam must be one track, got {len(recs)}: {recs}"
@@ -424,12 +424,12 @@ def test_bolt_on_seam_is_one_part_not_split():
     groups = run.records("group")
     assert len(groups) == 1 and groups[0]["member_track_ids"] == [1]
     out = groups[0]["output"]
-    assert out in ("bolt_0375", "misc"), f"contamination: bolt_0375 -> {out}"
+    assert out in ("bolt_0312", "misc"), f"contamination: bolt_0312 -> {out}"
     sends = run.records("send")
     assert len(sends) == 1 and sends[0]["output"] == out
     # Classified, not merely parked: the end-to-end requirement for the seam case.
-    assert out == "bolt_0375", (
-        f"bolt_0375 on the seam went to {out}: {rec['verdict']} {rec['flags']}"
+    assert out == "bolt_0312", (
+        f"bolt_0312 on the seam went to {out}: {rec['verdict']} {rec['flags']}"
     )
 
 
@@ -469,11 +469,11 @@ def test_replay_pipeline_is_deterministic(rig, tmp_path):
     """The same recording through `replay --pipeline` twice gives identical decision logs
     (excluding timings and the other DETERMINISM_IGNORE_KEYS), per record kind."""
     parts = [
-        PartSpec("nut_0375", 0.3, 1.0, 10.0),
+        PartSpec("nut_0312", 0.3, 1.0, 10.0),
         PartSpec("washer_025", 1.0, 1.0, 0.0),
         PartSpec("nut_025", 1.2, 1.2, 30.0),  # close to the previous one: a rework group
         PartSpec("bolt_025", 2.6, 1.0, 40.0),
-        PartSpec("washer_0375", 3.6, 1.0, 0.0),
+        PartSpec("washer_0312", 3.6, 1.0, 0.0),
     ]
     rec = write_recording(tmp_path / "scene", rig, parts)
     a = replay(rec, tmp_path / "a" / "decision_log.jsonl")

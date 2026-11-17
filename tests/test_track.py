@@ -197,7 +197,7 @@ def test_synthetic_three_parts_stable_belt_x() -> None:
     parts = [
         PartSpec("nut_025", 0.10, 0.6),
         PartSpec("bolt_025", 0.50, 1.2, angle_deg=0.0),
-        PartSpec("washer_0375", 0.90, 1.55),
+        PartSpec("washer_0312", 0.90, 1.55),
     ]
     tr, done = run_synthetic(parts, 3.0)
     assert len(done) == 3 and not tr.live()

@@ -111,7 +111,7 @@ def test_clean_run(tmp_path):
     assert rep.misc_rate == 0.0 and rep.rework_rate == 0.0
     assert rep.confusion["bolt_025"]["bolt_025"] == 2
     assert rep.per_class["bolt_025"] == {"precision": 1.0, "recall": 1.0, "support": 2}
-    assert rep.per_class["bolt_0375"]["precision"] is None
+    assert rep.per_class["bolt_0312"]["precision"] is None
     assert rep.overall == PASS
     assert len(rep.confusion) == 7 and all(len(r) == 8 for r in rep.confusion.values())
 

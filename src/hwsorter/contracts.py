@@ -36,22 +36,22 @@ class PartClass(str, Enum):  # noqa: UP042 - str mixin keeps JSON/asdict output 
     """In-scope part classes; values equal the keys of synthetic.PART_DIMS."""
 
     BOLT_025 = "bolt_025"
-    BOLT_0375 = "bolt_0375"
+    BOLT_0312 = "bolt_0312"
     NUT_025 = "nut_025"
-    NUT_0375 = "nut_0375"
+    NUT_0312 = "nut_0312"
     WASHER_025 = "washer_025"
-    WASHER_0375 = "washer_0375"
+    WASHER_0312 = "washer_0312"
 
 
 class Output(str, Enum):  # noqa: UP042
     """Collector bins: one per PartClass (same values) plus MISC and REWORK."""
 
     BOLT_025 = "bolt_025"
-    BOLT_0375 = "bolt_0375"
+    BOLT_0312 = "bolt_0312"
     NUT_025 = "nut_025"
-    NUT_0375 = "nut_0375"
+    NUT_0312 = "nut_0312"
     WASHER_025 = "washer_025"
-    WASHER_0375 = "washer_0375"
+    WASHER_0312 = "washer_0312"
     MISC = "misc"
     REWORK = "rework"
 

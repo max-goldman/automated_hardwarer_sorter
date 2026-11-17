@@ -77,7 +77,7 @@ def test_each_part_is_one_blob_with_nominal_area(rig, kind):
 
 def test_bolt_head_facet_does_not_split_bolt(rig):
     for angle in (0.0, 90.0, 200.0):
-        blobs, _ = run(rig, [PartSpec("bolt_0375", 0.0, 1.0, angle)], t=0.4)
+        blobs, _ = run(rig, [PartSpec("bolt_0312", 0.0, 1.0, angle)], t=0.4)
         assert len(blobs) == 1
 
 
@@ -110,7 +110,7 @@ def test_two_separated_parts_give_two_blobs(rig):
 
 
 def test_touches_edge(rig):
-    blobs, _ = run(rig, [PartSpec("washer_0375", 0.0, 1.0)], t=0.02)
+    blobs, _ = run(rig, [PartSpec("washer_0312", 0.0, 1.0)], t=0.02)
     assert len(blobs) == 1 and blobs[0].touches_edge
 
 
@@ -140,16 +140,16 @@ def _match(b1, b2):
 
 
 EQUIV_SCENES = {
-    "two_parts": ([PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0375", 0.1, 2.0)], 0.5),
+    "two_parts": ([PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0312", 0.1, 2.0)], 0.5),
     "three_parts": (
         [
             PartSpec("bolt_025", 0.0, 1.0, 30.0),
-            PartSpec("nut_0375", 0.1, 2.0),
+            PartSpec("nut_0312", 0.1, 2.0),
             PartSpec("washer_025", 0.5, 1.5),
         ],
         0.8,
     ),
-    "near_edge": ([PartSpec("washer_0375", 0.0, 1.0), PartSpec("bolt_025", 0.3, 1.8)], 0.02),
+    "near_edge": ([PartSpec("washer_0312", 0.0, 1.0), PartSpec("bolt_025", 0.3, 1.8)], 0.02),
 }
 
 
@@ -169,7 +169,7 @@ def test_coarse_scale_matches_full_frame(rig, name):
 def test_performance_report(rig):
     scene, flat, roi, mapper = rig
     r = SyntheticRenderer(
-        scene, [PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0375", 0.1, 2.0)]
+        scene, [PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0312", 0.1, 2.0)]
     )
     img = r.render(0.5, 0)
     n = 30
