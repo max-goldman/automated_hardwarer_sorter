@@ -16,7 +16,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -100,6 +100,8 @@ class SegmentConfig(_Section):
     subpixel_smooth_px: float = Field(0.7, ge=0)  # gaussian sigma before sub-pixel refinement
     min_area_in2: float = Field(0.01, ge=0)  # smaller blobs are dust, square inches
     close_kernel_px: int = Field(3, ge=0)  # morphological close kernel size, px
+    coarse_scale: int = Field(2, ge=1, le=2)  # 1 = old full-frame path; 2 = coarse-then-crop
+    crop_pad_px: int = Field(16, ge=12)  # full-res padding around the coarse blob crop, px
 
 
 class SeamConfig(_Section):
@@ -113,6 +115,8 @@ class SeamConfig(_Section):
     speed_window: int = Field(15, ge=2)  # seam sightings smoothed for the belt speed estimate
 
 
+# Track frame counts (max_missed_frames, settle_frames, min_frames) count PROCESSED frames
+# (after pipeline.frame_stride), not captured frames.
 class TrackConfig(_Section):
     gate_in: float = Field(0.5, gt=0)  # max belt-frame distance to link a blob to a track, inches
     settle_frames: int = Field(3, ge=1)  # frames before a track counts as settled
@@ -155,6 +159,10 @@ class PipelineConfig(_Section):
     save_crops: bool = True
     save_full_frames: bool = True  # full-frame reference per part, for grading
     crop_pad_in: float = Field(0.15, ge=0)  # padding around a part crop, inches
+    frame_stride: int = Field(2, ge=1)  # process a frame only when seq % frame_stride == 0
+    feature_stride: int = Field(3, ge=1)  # feature extraction every Nth PROCESSED frame
+    max_feature_frames: int = Field(10, ge=1)  # per-track cap on frames kept for features
+    queue_frames: int = Field(120, ge=1)  # pipeline input queue depth, frames
 
 
 class SorterConfig(_Section):
@@ -175,6 +183,21 @@ class SorterConfig(_Section):
     classify: ClassifyConfig = ClassifyConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     pipeline: PipelineConfig = PipelineConfig()
+
+    @model_validator(mode="after")
+    def _check_feature_budget(self) -> SorterConfig:
+        mff = self.pipeline.max_feature_frames
+        if mff < self.classify.min_frames:
+            raise ValueError(
+                f"pipeline.max_feature_frames ({mff}) must be >= "
+                f"classify.min_frames ({self.classify.min_frames})"
+            )
+        if mff < self.features.min_valid_frames:
+            raise ValueError(
+                f"pipeline.max_feature_frames ({mff}) must be >= "
+                f"features.min_valid_frames ({self.features.min_valid_frames})"
+            )
+        return self
 
 
 def project_root() -> Path:

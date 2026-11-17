@@ -70,6 +70,8 @@ gain_alpha = 0.05           # slow per-frame brightness-gain tracker rate
 subpixel_smooth_px = 0.7    # gaussian sigma before sub-pixel refinement
 min_area_in2 = 0.01         # smaller blobs are dust (square inches)
 close_kernel_px = 3         # morphological close kernel, pixels
+coarse_scale = 2            # 1 = old full-frame path; 2 = two-stage coarse-then-crop
+crop_pad_px = 16            # full-res padding around the coarse blob crop (>= 12)
 
 [seam]
 enabled = true
@@ -114,3 +116,7 @@ crop_dir = "crops"              # relative to the session folder
 save_crops = true
 save_full_frames = true         # full-frame reference per part, for grading
 crop_pad_in = 0.15              # padding around a part crop, inches
+frame_stride = 2                # process a frame only when seq % frame_stride == 0
+feature_stride = 3              # feature extraction every Nth PROCESSED frame
+max_feature_frames = 10         # per-track cap on frames kept for features (>= classify/features minimums)
+queue_frames = 120              # pipeline input queue depth, frames
