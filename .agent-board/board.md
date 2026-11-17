@@ -126,6 +126,7 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | 019 `sorter measure` | DONE, merged | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
 | 020 stationary-belt mode | DONE, merged (3 rounds) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
 | 021 cross-machine compare | DONE, merged |
+| 023 real-image robustness | IN_PROGRESS (Opus worker) | First real stationary images: uneven/drifting illumination, attached shadows, outline-noise circularity, bolt shank, washer hole level, false seam. |
 | 022 test isolation + measure polish | DONE, merged | Tests must ignore `config/local.toml` (this Mac has exposure_ms=8.0, which broke 2 golden CLI tests after the 021 merge). Plus 019 optional notes. | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
 
 Open design question for the user (not scheduled): stacked/touching parts that never separate form ONE blob -> lone part -> MISC; the brief says stacked parts go to REWORK. Candidate: a "looks like several parts" flag. Safe today (never contamination).
@@ -141,3 +142,8 @@ Open design question for the user (not scheduled): stacked/touching parts that n
 - Camera stalls ~0.2 s on exposure-mode changes; the capture service has an "expect disruption" notice for this.
 - Per-frame brightness uses the 75th percentile of the image centre (parts passing would otherwise look like flicker).
 - Scale is provisional (~367 px/in); belt speed, lead time, camera latency, runway are "uncalibrated" placeholders.
+
+## Rig facts (session 4, 2026-11-17)
+- Exposure 8 ms (config/local.toml on the rig Mac): spans the dimmable lights' ~4 ms PWM period, 0% dimmed frames, belt ~200/255. Too much blur for a moving belt.
+- Scale 387.7 px/in (3 views, 382-393 spread, fit 0.75 px). ROI rows 52-789. Flat-field from `empty-belt-still` (stationary).
+- Ambient light is uncontrolled: ±5-8% spatial illumination drift between captures (operator position, room light). Recommended to the user: hood the rig, diffuse the lamp.
