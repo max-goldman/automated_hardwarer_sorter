@@ -102,6 +102,11 @@ Live status: wave-2 + 011 + 012 + 013 + 014 + 017 (bolt/seam/track fixes, Opus-r
 
 NOTE: a server restart mid-session killed the 017 worker at 1h39m; its WIP was recovered (commit ba96778) and the worker resumed to completion. Session restarts can drop in-flight agents — commit WIP promptly.
 
+### Accuracy characterization (session 3, synthetic-only, measured 2026-11-17)
+- Acceptance scene `test_end_to_end_30_parts_with_seam`: **30/30, zero contamination** (the brief's bar).
+- Harsh stress scene (bench `stride_parts`: 60 parts, random bolt angles 0–360 + random cross-belt y + seam present): **85% (51/60), ZERO contamination**. All 9 misses fail SAFE (REWORK/MISC, never a wrong bin): 5 parts crossing the seam (on_seam — the accepted bolt-on-seam class, incl. a nut + washer, not only bolts), 3 random-angle bolts fragmenting into 2 tracks near the seam (MERGED/FEW_FRAMES), 1 `nut_025` UNRESOLVED→REWORK. `frame_stride` 1-vs-2 identical (the budget guard passes).
+- Interpretation: the paramount property — **zero wrong-class contamination — holds on every scene**. Absolute accuracy on a harsh random scene is dominated by the DEFERRED seam-interaction class (see hardware-pending) plus a couple of borderline random-angle bolts; true accuracy needs the real camera/seam (checkpoints 2–3). Not a contamination risk; not blocking the milestone.
+
 ### Notes for task 011 (integration) — gathered from the wave-2 reviews
 - `segment(prepared, cfg, mapper)`: 011 MUST pass a real `PlaneMapper`, not None, or the min-area gate drops to an 8 px floor. `segment.coarse_scale` defaults to 2 (two-stage); equivalence with 1 is tested.
 - `extract(obs, prepared, cfg.features)` and `fuse(track, vectors, cfg.features)`: pass `cfg.features` EXPLICITLY, or any user `[features]` tuning is silently ignored (they default to a fresh `FeaturesConfig()`).
