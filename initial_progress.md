@@ -1,6 +1,6 @@
 # Hardware Sorter Vision Program: Progress
 
-Session 1 (2026-11-16) planned the project and built Milestones 0 and 1; its notes start at "Milestone 0 results" below. Session 2 (2026-11-16 to 17) ran as a multi-agent build: an Opus orchestrator with Sonnet workers, Sonnet or Opus reviewers, and Fable or Opus advisors. It ended when the account hit its 5-hour usage limit, with several agents stopped mid-task. To pick up the work, see `continuation_prompt.md` and the local board in `.agent-board/`.
+Session 1 (2026-11-16) planned the project and built Milestones 0 and 1; its notes start at "Milestone 0 results" below. Session 2 (2026-11-16 to 17) ran as a multi-agent build: an Opus orchestrator with Sonnet workers, Sonnet or Opus reviewers, and Fable or Opus advisors. It ended when the account hit its 5-hour usage limit, with several agents stopped mid-task. To pick up the work, see `continuation_prompt.md` and the board in `.agent-board/`, which is git-tracked since the end of session 2. **Session 3 runs on a different machine with no camera.** All hardware-dependent work is parked on branch `hardware-pending` (`HARDWARE_PENDING.md`).
 
 ## Where things stand (end of session 2, 2026-11-17)
 
@@ -23,6 +23,9 @@ Session 1 (2026-11-16) planned the project and built Milestones 0 and 1; its not
 | Out-of-scope test items | Undecided, so tolerances are designed for near-miss sizes |
 | Checkpoints | Stop after each milestone for a hardware checklist (my default; not explicitly confirmed). In session 2 the user said to keep going on software, so M2/M3 are being built against synthetic scenes before checkpoint 1 |
 | Agents | Session 2: an Opus orchestrator; Fable or Opus advisors are allowed as needed |
+| Frame budget | Session 2: not every frame needs processing unless that brings a significant accuracy gain; ~10 or fewer frames per part is fine. Adopted: process every 2nd frame, features on at most 10 frames per part, two-stage segmentation, with an accuracy guard in the bench |
+| Hardware changes | Session 2: no collector, no extra light and no moving conveyor yet |
+| Next session | Session 3 runs on another machine without the camera; camera and physical work goes on branch `hardware-pending` |
 
 ## Milestone 0 results (measured on the Mac)
 
@@ -114,7 +117,7 @@ Both are in place and tested. The next step was to finish milestone 1.
 # Session 2 (2026-11-16 to 17): multi-agent build
 
 ## Process
-- The orchestrator coordinates through a local board, `.agent-board/` (gitignored, so it exists only on this Mac). The board holds `board.md` (commands, rules, decisions, task status), `contracts-spec.md`, `budget-proposal.md`, `inbox.md` and `tasks/NNN-slug.md` (one per task, with its spec, verification output and review notes).
+- The orchestrator coordinates through a board, `.agent-board/`. It was gitignored during session 2 and has been tracked in git since the end of it, so it travels with clones. Paths in it use the `<REPO_ROOT>` placeholder. The board holds `board.md` (commands, rules, decisions, task status), `contracts-spec.md`, `budget-proposal.md`, `inbox.md` and `tasks/NNN-slug.md` (one per task, with its spec, verification output and review notes).
 - Each worker runs in its own git worktree (`.claude/worktrees/`, gitignored) on its own branch `task/NNN-slug`. A fresh reviewer re-runs every command before the orchestrator merges into `develop`.
 - Verification commands:
   - `uv run pytest`
@@ -166,18 +169,16 @@ Both are in place and tested. The next step was to finish milestone 1.
 3. **010 scheduler:** on branch `task/010-schedule-output` (a7ccaf6). Review round 1 asked for one change: make the real-clock jitter test opt-in. Then review round 2.
 4. **005 seam handling:** on branch `task/005-seam` (5b62bf9), partial and UNVERIFIED. It has `vision/seam.py` only, no tests.
 5. **008 classifier:** on branch `task/008-classify` (79daf97), partial and UNVERIFIED. It has the library, range classifier, `config/parts_library.yaml` and tests, and adds pyyaml.
-6. **Budget proposal:** needs sign-off, then a small task to add the 6 config keys before the 004 rework and 011.
+6. **Budget plan:** adopted. New task 002b adds the 6 config keys; it must land before the 004 rework and 011.
 7. **Tasks 011-016 not started:** pipeline runner and decision log; grading tool; report; GUI debug overlay; bench and replay regression; design note and `derive-ranges`. Specs are in `.agent-board/tasks/`.
 8. **Carried notes for 011:**
    - Tracker needs a public `t0_ns`.
    - Call `Grouper.advance` with a frontier that accounts for live tracks.
    - `segment()` takes an extra optional `mapper` argument and must receive it, otherwise min-area falls back to 8 px.
    - Parts that enter the view already fused form one track; consider flagging a split by area drop.
-9. **Stale worktrees** remain under `.claude/worktrees/` for the open branches. Remove them as branches merge.
-10. **Hardware, waiting on the user** (see `.agent-board/inbox.md`):
-    - more light;
-    - checkpoint 1 at the rig (print the target, calibrate, record empty-belt laps for the flat-field, record 30-part runs);
-    - a rough collector lead time.
+9. **Stale worktrees** for the open branches are on the session-2 Mac only, under `.claude/worktrees/`. A clone won't have them; the task branches hold all the work.
+10. **Hardware-dependent work is parked** on branch `hardware-pending` (`HARDWARE_PENDING.md`): checkpoint 1 at the rig, real-recording checks, lighting, belt motion, serial, timing calibration, and the Dell/Linux camera. The user says no collector, light or conveyor changes are coming yet, and session 3 has no camera.
+11. **Agent transcripts and Claude memory** from sessions 1 and 2 stay on the session-2 Mac (`~/.claude/projects/`). They are not needed: everything required is in this file, the board, the task files and the branches.
 
 ---
 

@@ -12,6 +12,4 @@ reports/
 config/local.toml
 config/calibration/
 
-# Orchestration board (local only)
-.agent-board/
 .claude/
