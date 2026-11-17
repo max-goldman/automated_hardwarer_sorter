@@ -73,6 +73,7 @@ class Session:
         self._rec_stop = threading.Event()
         self._rec_baseline: tuple[int, int] = (0, 0)
         self.recording_path: Path | None = None
+        self._runner: Any = None
 
     # -- lifecycle ------------------------------------------------------------------
     def start(self) -> None:
@@ -82,9 +83,25 @@ class Session:
         else:
             self.exposure_ms = self.control.get_exposure_ms()
 
+    def start_pipeline(self, pipeline: Any) -> Any:
+        """Plug a Pipeline in as a capture consumer (own bounded queue and thread)."""
+        from .pipeline import PipelineRunner
+
+        queue = self.capture.subscribe("pipeline", self.cfg.pipeline.queue_frames)
+        self._runner = PipelineRunner(pipeline, queue)
+        self._runner.start()
+        return self._runner
+
+    def stop_pipeline(self, wait_s: float = 0.0) -> None:
+        if self._runner is not None:
+            self._runner.stop(wait_s)
+            self.capture.unsubscribe(self._runner.queue)
+            self._runner = None
+
     def stop(self) -> None:
         if self.recording:
             self.stop_recording()
+        self.stop_pipeline()
         self.capture.stop()
         self.control.close()
 
