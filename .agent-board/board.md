@@ -118,6 +118,17 @@ NOTE: a server restart mid-session killed the 017 worker at 1h39m; its WIP was r
 - Tracker needs a public read-only `t0_ns` (006 note); `Grouper.advance` frontier must account for live tracks behind a group (009 note, invariant 6).
 - `hole_kind` is a categorical median (0/1/2, can be 0.5/1.5 on split votes, NaN degenerate); the classifier already brackets integer codes and treats a NaN required feature as non-fitting.
 
+## Session 4 (2026-11-17, back on the session-2 Mac: Apple M5, CAMERA CONNECTED at the rig)
+Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the original dimmable lights (PWM flicker still present). Hardware-pending items are now live where they need only a stopped belt (calibration, real-image segmentation and feature checks). Workers use built-in worktree isolation and REPORT verification in their final message; the orchestrator writes the board and merges (session-3 practice). Commit trailer: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+| Task | Status | Notes |
+| --- | --- | --- |
+| 019 `sorter measure` | IN_PROGRESS | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
+| 020 stationary-belt mode | IN_PROGRESS | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
+| 021 cross-machine compare | IN_PROGRESS | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
+
+Open design question for the user (not scheduled): stacked/touching parts that never separate form ONE blob -> lone part -> MISC; the brief says stacked parts go to REWORK. Candidate: a "looks like several parts" flag. Safe today (never contamination).
+
 ## Hardware and camera (session 3 onward)
 - **Session 3+ runs on a different machine with NO camera** and no access to this Mac's recordings (`recordings/` is gitignored). Everything must be built and verified with synthetic scenes, generated recordings and unit tests. No task may need the camera, the rig or a real recording to pass.
 - **No physical changes are coming yet** (user, 2026-11-17): no collector, no extra light, no moving conveyor.
