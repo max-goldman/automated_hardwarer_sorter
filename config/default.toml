@@ -1,0 +1,62 @@
+# Hardware sorter configuration: every hand-edited tunable lives here.
+# Override per machine in config/local.toml (same layout, only the keys you change).
+# Values measured by the calibration tool are written to config/calibration/<machine>.json,
+# never to this file.
+schema_version = 1
+
+[camera]
+backend = "auto"            # auto | avfoundation (macOS) | v4l2 (Linux, milestone 5)
+usb_vendor_id = 0x0C45      # Sonix bridge in the Innomaker U20CAM-9281M
+usb_product_id = 0x636D
+width = 1280
+height = 800
+fps = 120.0
+exposure_ms = 0.5           # fixed exposure; the camera accepts 0.1 ms steps, 0.2 ms minimum
+flip_horizontal = false     # set by calibration if the image arrives mirrored
+flip_vertical = false
+queue_frames = 240          # capture queue depth (2 s); overflow is counted and logged
+lens_focal_mm = 8.0         # used only as the fixed focal length in the distortion fit
+pixel_pitch_um = 3.0        # OV9281
+
+[belt]
+speed_in_s = 4.0            # nominal; the measured value is stored in calibration
+loop_length_in = 52.0       # nominal; one stitched seam per loop
+rework_gap_in = 1.0         # parts closer than this along the belt form one group
+
+[timing]
+# UNCALIBRATED placeholders until system timing calibration (milestone 4).
+calibrated = false
+exit_to_belt_end_in = 12.0  # right edge of the camera view to the end of the belt
+collector_lead_ms = 500.0   # time the collector needs before the part falls
+camera_latency_ms = 20.0    # exposure to frame timestamp
+
+[recording]
+dir = "recordings"
+zstd_level = 1              # lossless; about 8x smaller than raw on real frames
+queue_frames = 1200         # writer queue depth (10 s) so disk stalls never block capture
+
+[roi]
+mode = "auto"               # auto | manual
+top = 0                     # manual belt edges in pixels (used when mode = "manual")
+bottom = 800
+margin_px = 6               # shrink the detected belt by this much on each side
+
+[focus]
+edge_width_good_px = 2.2    # 10-90% edge width at or below this is sharp
+edge_width_soft_px = 3.2    # above this is too soft to measure reliably
+
+[exposure]
+max_blur_px = 0.75          # motion blur allowed at belt speed
+belt_target_level = 180     # desired belt gray level (0-255)
+belt_min_level = 90         # below this, warn that there is not enough light
+flicker_warn_pct = 3.0      # frame-to-frame brightness swing that triggers a lighting warning
+
+[calibration_target]
+squares_x = 16              # ChArUco board, 16 x 10 squares of 5 mm = 80 x 50 mm
+squares_y = 10
+square_mm = 5.0
+marker_mm = 3.5
+scale_bar_mm = 50.0         # printed bar the user measures to correct printer scaling
+
+[gui]
+display_fps = 30

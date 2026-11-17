@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# Large or machine-specific outputs
+recordings/
+sessions/
+logs/
+reports/
+config/local.toml
+config/calibration/
+
+# Orchestration board (local only)
+.agent-board/
