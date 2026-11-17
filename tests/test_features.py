@@ -201,6 +201,46 @@ def test_features_match_nominal(kind, angle):
     assert got["edge_sharpness"] > 0.0
 
 
+def _bolt_polygon_in(head_len: float, taper: float, angle_deg: float) -> np.ndarray:
+    """Bolt outline in belt inches: head (0.65 wide) then shank (0.37 wide), 1.23 in overall.
+    ``taper`` rounds the outer head corners so the outermost slices are narrower than the head."""
+    hw, sw, total = 0.65 / 2, 0.37 / 2, 1.23
+    x0 = -total / 2
+    pts = [
+        (x0, -hw + taper),
+        (x0 + taper, -hw),
+        (x0 + head_len, -hw),
+        (x0 + head_len, -sw),
+        (total / 2, -sw),
+        (total / 2, sw),
+        (x0 + head_len, sw),
+        (x0 + head_len, hw),
+        (x0 + taper, hw),
+        (x0, hw - taper),
+    ]
+    a = math.radians(angle_deg)
+    rot = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+    return np.asarray(pts) @ rot.T
+
+
+@pytest.mark.parametrize("angle", (0.0, 180.0, 90.0, 37.0, 256.8))
+@pytest.mark.parametrize("taper", (0.0, 0.1))
+@pytest.mark.parametrize("flip", (False, True))
+def test_bolt_head_length_survives_tapered_head_and_axis_alignment(angle, taper, flip):
+    """head_length_in reads the head plateau, not the first sample under the width midpoint: an
+    axis-aligned bolt or one whose outer head end tapers must not collapse to 0 (-> MISC)."""
+    true_head = 0.234
+    poly = _bolt_polygon_in(true_head, taper, angle + (180.0 if flip else 0.0))
+    contour_px = (poly * PPI + [CX, CY]).astype(np.float32)
+    flat = np.ones((800, 1280), np.float32)
+    obs, prep = _observation(flat, contour_px)
+    v = extract(obs, prep).values
+    assert v["head_length_in"] == pytest.approx(true_head, abs=0.03), (angle, taper, flip)
+    assert v["head_width_in"] == pytest.approx(0.65, abs=0.02)
+    assert v["shank_width_in"] == pytest.approx(0.37, abs=0.02)
+    assert v["total_length_in"] == pytest.approx(1.23, abs=0.02)
+
+
 @pytest.mark.parametrize("angle", ANGLES)
 def test_washer_vs_nut_near_miss_separable(angle):
     washer, nut = measure("washer_025", angle), measure("nut_0375", angle)

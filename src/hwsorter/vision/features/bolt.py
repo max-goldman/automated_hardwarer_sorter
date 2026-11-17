@@ -48,10 +48,16 @@ def _bolt(c: np.ndarray, prepared: Prepared, blob: Blob, cfg: FeaturesConfig):
     step = float(s[1] - s[0])
     shank = float(np.percentile(wid[n // 4 :], 90))
     head = float(np.percentile(wid[:q], 90))
-    below = np.nonzero(wid < 0.5 * (shank + head))[0]
+    mid = 0.5 * (shank + head)
+    # Head length = from the outer head end to where the head plateau drops to the shank. Walk
+    # forward from the widest head sample (the plateau), so a tapered or blurred head tip (whose
+    # first samples sit below the midpoint) cannot read as a zero-length head.
+    i0 = int(np.argmax(wid[: max(n // 2, 1)]))
+    drop = np.nonzero(wid[i0:] < mid)[0]
+    head_len = float(i0 + drop[0] if drop.size else n) * step
     return {
         "shank_width_in": shank,
         "head_width_in": head,
-        "head_length_in": float(below[0] if below.size else n) * step,
+        "head_length_in": head_len,
         "total_length_in": float(s[-1] - s[0]) + step,
     }
