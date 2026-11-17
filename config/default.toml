@@ -60,3 +60,34 @@ scale_bar_mm = 50.0         # printed bar the user measures to correct printer s
 
 [gui]
 display_fps = 30
+
+[segment]
+deviation_threshold = 0.12  # |flat - 1| above this is part (flat-fielded belt is ~1.0)
+edge_threshold = 0.06       # lower threshold used for sub-pixel edge placement
+min_area_in2 = 0.01         # smaller blobs are dust (square inches)
+close_kernel_px = 3         # morphological close kernel, pixels
+
+[seam]
+enabled = true
+angle_deg = 0.0             # nominal seam angle from vertical, degrees
+width_in = 0.25             # nominal seam band width, inches
+
+[track]
+gate_in = 0.5               # max belt-frame distance to link a blob to a track (inches)
+settle_frames = 3           # frames before a track counts as settled
+max_missed_frames = 3       # frames a track may go unseen before it finishes
+speed_tolerance = 0.15      # allowed fractional deviation from belt speed
+
+[classify]
+confidence_threshold = 1.0      # worst-feature score at or below this fits a class
+out_of_scope_threshold = 1.5    # best score above this is out of scope
+min_frames = 3                  # fewer fused frames can never be CONFIDENT
+library_path = "config/parts_library.yaml"
+
+[scheduler]
+enabled = true
+spin_ms = 4.0               # busy-wait window before a send time
+
+[pipeline]
+decision_log_dir = "decisions"  # relative to the session folder
+crop_dir = "crops"

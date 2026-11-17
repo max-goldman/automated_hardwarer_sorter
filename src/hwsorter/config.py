@@ -90,6 +90,43 @@ class GuiConfig(_Section):
     display_fps: int = Field(30, ge=1, le=120)
 
 
+class SegmentConfig(_Section):
+    deviation_threshold: float = Field(0.12, gt=0)  # |flat - 1| above this is part (belt ~1.0)
+    edge_threshold: float = Field(0.06, gt=0)  # lower hysteresis threshold for sub-pixel edges
+    min_area_in2: float = Field(0.01, ge=0)  # smaller blobs are dust, square inches
+    close_kernel_px: int = Field(3, ge=0)  # morphological close kernel size, px
+
+
+class SeamConfig(_Section):
+    enabled: bool = True
+    angle_deg: float = 0.0  # nominal seam angle from vertical, degrees
+    width_in: float = Field(0.25, gt=0)  # nominal seam band width, inches
+
+
+class TrackConfig(_Section):
+    gate_in: float = Field(0.5, gt=0)  # max belt-frame distance to link a blob to a track, inches
+    settle_frames: int = Field(3, ge=1)  # frames before a track counts as settled
+    max_missed_frames: int = Field(3, ge=0)  # frames a track may go unseen before it finishes
+    speed_tolerance: float = Field(0.15, ge=0)  # allowed fractional deviation from belt speed
+
+
+class ClassifyConfig(_Section):
+    confidence_threshold: float = Field(1.0, gt=0)  # worst-feature score at or below = fits
+    out_of_scope_threshold: float = Field(1.5, gt=0)  # best score above this = out of scope
+    min_frames: int = Field(3, ge=1)  # fewer fused frames cannot be CONFIDENT
+    library_path: str = "config/parts_library.yaml"
+
+
+class SchedulerConfig(_Section):
+    enabled: bool = True
+    spin_ms: float = Field(4.0, ge=0)  # busy-wait window before a send time, milliseconds
+
+
+class PipelineConfig(_Section):
+    decision_log_dir: str = "decisions"
+    crop_dir: str = "crops"
+
+
 class SorterConfig(_Section):
     schema_version: int = SCHEMA_VERSION
     camera: CameraConfig = CameraConfig()
@@ -101,6 +138,12 @@ class SorterConfig(_Section):
     exposure: ExposureConfig = ExposureConfig()
     calibration_target: CalibrationTargetConfig = CalibrationTargetConfig()
     gui: GuiConfig = GuiConfig()
+    segment: SegmentConfig = SegmentConfig()
+    seam: SeamConfig = SeamConfig()
+    track: TrackConfig = TrackConfig()
+    classify: ClassifyConfig = ClassifyConfig()
+    scheduler: SchedulerConfig = SchedulerConfig()
+    pipeline: PipelineConfig = PipelineConfig()
 
 
 def project_root() -> Path:
