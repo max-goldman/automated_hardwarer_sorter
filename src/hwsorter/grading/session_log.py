@@ -46,6 +46,7 @@ class LoggedGroup:
     t_ref_ns: int
     sent_output: str | None = None  # from the send record; MISC when the decision was late
     miss: str | None = None
+    supersedes: tuple[int, ...] = ()  # stationary: earlier group decisions this one replaces
 
 
 @dataclass
@@ -57,6 +58,7 @@ class SessionData:
     parts: list[LoggedPart]  # ordered by (t_ref_ns, belt_x_lead_in, track_id)
     groups: list[LoggedGroup]
     _by_track: dict[int, int] = field(default_factory=dict, repr=False)
+    history: list[LoggedGroup] = field(default_factory=list, repr=False)  # superseded decisions
 
     def part_index(self, track_id: int) -> int | None:
         return self._by_track.get(track_id)
@@ -155,6 +157,7 @@ def load_session(path: str | Path) -> SessionData:
                     output=str(r.get("output")),
                     rule=str(r.get("rule", "")),
                     t_ref_ns=int(r.get("t_ref_ns", 0)),
+                    supersedes=tuple(int(g) for g in r.get("supersedes", ())),
                 )
             elif kind == "send":
                 sends[int(r["group_id"])] = r
@@ -167,6 +170,10 @@ def load_session(path: str | Path) -> SessionData:
         joined.append(sent or group)
     parts.sort(key=lambda p: (p.t_ref_ns, p.belt_x_lead_in, p.track_id))
     joined.sort(key=lambda g: g.group_id)
-    data = SessionData(root, log_path, start, end, parts, joined)
+    # A stationary re-decision replaces the decisions it names: only the latest counts.
+    dead = {g for grp in joined for g in grp.supersedes}
+    history = [g for g in joined if g.group_id in dead]
+    joined = [g for g in joined if g.group_id not in dead]
+    data = SessionData(root, log_path, start, end, parts, joined, history=history)
     data._by_track = {p.track_id: i for i, p in enumerate(parts)}
     return data

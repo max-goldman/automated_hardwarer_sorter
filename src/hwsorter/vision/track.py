@@ -18,6 +18,17 @@ Design choices
   FEW_FRAMES if fewer than ``min_frames`` valid observations, TOUCHES_EDGE if the part was
   never seen fully inside the image. ON_SEAM is copied from ``Blob.on_seam``.
 - Track extents come from valid observations (all observations if none are valid).
+
+Stationary mode (``belt.mode = "stationary"``, a ``StationaryConfig`` is passed): the belt is
+stopped, so v = 0 and the belt frame is the image frame. An observation is valid when the part
+is fully in view, not merged, its centre moved less than ``stationary.move_tol_in`` since the
+previous observation and its area is stable (no belt-speed test). A track finishes only when
+its part was removed (unseen for ``stationary.missed_s`` while no hand is in view, see the
+``hold`` argument of ``update``) or, once the pipeline has ``lock``-ed it as measured, when the
+part reappears more than ``stationary.relocate_in`` from where it was measured (it was moved: the
+old track finishes and the blob starts a new one). A track never finishes by leaving the view,
+and only a bounded window of observations is kept so a part that sits for hours uses no more
+memory than one that sits for seconds.
 """
 
 from __future__ import annotations
@@ -28,7 +39,7 @@ import cv2
 import numpy as np
 
 from ..calibration.store import PlaneMapper
-from ..config import TrackConfig
+from ..config import StationaryConfig, TrackConfig
 from ..contracts import Blob, Observation, Track, TrackFlag
 
 NS_PER_S = 1_000_000_000
@@ -37,6 +48,24 @@ NS_PER_S = 1_000_000_000
 # fragment of a real part). An image-fixed blob that did not travel with the belt drifts by the
 # full belt travel and is kept, so a genuine degenerate track is still reported.
 _BELT_RIDE_DRIFT_FRAC = 0.7
+_REAPPEAR_S = 0.15  # a measured part unseen this long and back: is it the same part?
+_REAPPEAR_IOU = 0.9  # ... yes if its silhouette overlaps the measured one at least this much
+_STATIONARY_WINDOW = 60  # observations kept per track in stationary mode (a part may sit for hours)
+
+
+def _iou(a: np.ndarray, b: np.ndarray, px_per_in: float = 100.0) -> float:
+    """Overlap of two filled silhouettes (contours in inches), rasterized on a shared grid."""
+    lo = np.minimum(a.min(axis=0), b.min(axis=0))
+    hi = np.maximum(a.max(axis=0), b.max(axis=0))
+    size = np.ceil((hi - lo) * px_per_in).astype(int) + 3
+    masks = []
+    for c in (a, b):
+        m = np.zeros((int(size[1]), int(size[0])), np.uint8)
+        pts = np.round((c - lo) * px_per_in + 1).astype(np.int32)
+        cv2.fillPoly(m, [pts], 1)
+        masks.append(m.astype(bool))
+    union = np.count_nonzero(masks[0] | masks[1])
+    return float(np.count_nonzero(masks[0] & masks[1]) / union) if union else 1.0
 
 
 @dataclass
@@ -46,6 +75,7 @@ class _Hist:
     area: float
     edge: bool
     merged: bool
+    cy: float = 0.0  # centre y (stationary validity only)
 
 
 @dataclass
@@ -58,6 +88,13 @@ class _State:
     slot: int = 0  # internal live-track key; the public track_id is assigned lazily (see Tracker)
     missed: int = 0
     hist: list[_Hist] = field(default_factory=list)
+    t_first_ns: int = 0
+    anchor: tuple[float, float] | None = None  # stationary: where the pipeline measured the part
+    displaced: bool = False  # stationary: a measured part was moved; finish it this frame
+    held_unseen: bool = False  # stationary: unseen during a frame with a hand in view
+    anchor_area: float = 0.0  # stationary: the measured part's silhouette area, px
+    off: int = 0  # stationary: consecutive sightings whose area no longer matches anchor_area
+    anchor_contour: np.ndarray | None = None  # stationary: the measured silhouette, inches
 
 
 @dataclass
@@ -72,9 +109,16 @@ class _Det:
 
 
 class Tracker:
-    def __init__(self, mapper: PlaneMapper, speed_in_s: float, cfg: TrackConfig) -> None:
+    def __init__(
+        self,
+        mapper: PlaneMapper,
+        speed_in_s: float,
+        cfg: TrackConfig,
+        stationary: StationaryConfig | None = None,
+    ) -> None:
         self.mapper = mapper
-        self.v = float(speed_in_s)
+        self.st = stationary
+        self.v = 0.0 if stationary is not None else float(speed_in_s)
         self.cfg = cfg
         w, h = mapper.scale.image_width, mapper.scale.image_height
         edges = mapper.px_to_in(np.array([[0.0, h / 2.0], [float(w), h / 2.0]]))
@@ -100,7 +144,30 @@ class Tracker:
     def live(self) -> list[Track]:
         return [s.track for s in self._states.values()]
 
-    def update(self, seq: int, t_capture_ns: int, blobs: list[Blob]) -> list[Track]:
+    def lock(self, track: Track) -> None:
+        """Stationary: the pipeline measured ``track``; remember where, so a later sighting far
+        from there finishes it (the part was moved) instead of silently changing the measured part."""
+        for s in self._states.values():
+            if s.track is track:
+                s.anchor = (
+                    (track.belt_x_lead_in + track.belt_x_trail_in) / 2.0,
+                    (track.y_min_in + track.y_max_in) / 2.0,
+                )
+                areas = [o.blob.area_px for o in track.observations if o.valid]
+                s.anchor_area = float(np.median(areas)) if areas else 0.0
+                s.off = 0
+                valid = [o for o in track.observations if o.valid]
+                s.anchor_contour = (valid or track.observations)[-1].contour_in
+
+    def settle_flags(self, track: Track) -> TrackFlag:
+        """The finish-time flags (UNSETTLED / FEW_FRAMES / TOUCHES_EDGE) of a still-live track."""
+        return self._flags(track) | track.flags
+
+    def update(
+        self, seq: int, t_capture_ns: int, blobs: list[Blob], hold: bool = False
+    ) -> list[Track]:
+        """Link blobs to tracks and return the tracks that finished. ``hold`` (stationary only):
+        a hand is in view and may cover parts, so no unseen track is finished this frame."""
         if self._t0 is None:
             self._t0 = t_capture_ns
         t_ns = t_capture_ns
@@ -153,6 +220,11 @@ class Tracker:
                     continue
                 dist = self._distance(s, d)
                 if dist <= self.cfg.gate_in:
+                    if s.anchor is not None and (
+                        np.hypot(d.cx - s.anchor[0], d.cy - s.anchor[1]) > self.st.relocate_in  # type: ignore[union-attr]
+                    ):
+                        s.displaced = True  # a measured part that was moved: re-measure it
+                        continue
                     pairs.append((dist, s.slot, j))
         pairs.sort()
         for _dist, slot, j in pairs:
@@ -168,7 +240,9 @@ class Tracker:
                 continue
             slot = self._next_slot
             self._next_slot += 1
-            state = _State(Track(track_id=0), d.lead, d.trail, d.cx, d.cy, slot=slot)
+            state = _State(
+                Track(track_id=0), d.lead, d.trail, d.cx, d.cy, slot=slot, t_first_ns=d.t_ns
+            )
             self._states[slot] = state
             self._observe(state, seq, d, shift, merged=False)
 
@@ -176,9 +250,25 @@ class Tracker:
         # public id (no valid observation ever) is a seam tail or an edge/merge fragment, not a
         # part: drop it so it consumes no id and emits nothing.
         finished: list[Track] = []
+        cfg = self.cfg
         for s in states:
             if s.slot in matched:
                 s.missed = 0
+                if s.displaced or s.off >= cfg.settle_frames:
+                    # A measured part was swapped in place (a different silhouette sits where it
+                    # was): finish it; the blob starts a new track on the next frame.
+                    t = self._finish(s)
+                    if t.track_id != 0:
+                        finished.append(t)
+                continue
+            if self.st is not None:
+                s.held_unseen = s.held_unseen or hold
+                last = s.hist[-1].t_ns if s.hist else s.t_first_ns
+                gone = (t_ns - last) / NS_PER_S >= self.st.missed_s and not hold
+                if s.displaced or gone:
+                    t = self._finish(s)
+                    if t.track_id != 0:  # a never-confirmed blob was no part: emit nothing
+                        finished.append(t)
                 continue
             s.missed += 1
             trail_x = s.trail + shift  # image-plane x of the trailing edge now
@@ -230,7 +320,17 @@ class Tracker:
         edge = d.blob.touches_edge
         clean = not edge and not merged  # a plain in-view sighting (may still be area-unstable)
         valid = clean
-        if valid:
+        if valid and self.st is not None:
+            prev = s.hist[-1] if s.hist else None
+            if prev is not None and not prev.edge and not prev.merged:
+                if np.hypot(d.cx - prev.cx, d.cy - prev.cy) > self.st.move_tol_in:
+                    valid = False
+                elif (
+                    prev.area > 0
+                    and abs(d.blob.area_px - prev.area) / prev.area > cfg.max_area_change
+                ):
+                    valid = False
+        elif valid:
             ref = [h for h in s.hist[-cfg.settle_frames :] if not h.edge and not h.merged]
             if ref:
                 dt_s = (d.t_ns - ref[0].t_ns) / NS_PER_S
@@ -247,6 +347,28 @@ class Tracker:
             ):
                 valid = False
         t = s.track
+        if (
+            self.st is not None
+            and s.anchor_contour is None
+            and s.hist
+            and not merged
+            and (s.held_unseen or (d.t_ns - s.hist[-1].t_ns) / NS_PER_S >= _REAPPEAR_S)
+        ):
+            # An unmeasured track back after a gap, or after any frame a hand held it unseen (a
+            # quick swap): its earlier frames may show another part, so finish it and re-measure.
+            s.displaced = True
+        s.held_unseen = False
+        if (
+            s.anchor_contour is not None
+            and s.hist
+            and not merged
+            and (d.t_ns - s.hist[-1].t_ns) / NS_PER_S >= _REAPPEAR_S
+            and _iou(s.anchor_contour, d.contour_in) < _REAPPEAR_IOU
+        ):
+            s.displaced = True  # back after a gap but not the same silhouette: another part
+        if s.anchor is not None and s.anchor_area > 0:
+            far = abs(d.blob.area_px - s.anchor_area) / s.anchor_area > 2 * cfg.max_area_change
+            s.off = s.off + 1 if far else 0
         # A track earns its public id (and is emitted) once it is seen cleanly in view at least
         # once -- a real part, even if its area never settles. A track only ever at the image
         # edge or merged (a seam tail, or an edge/merge fragment) never earns one and is dropped.
@@ -256,7 +378,10 @@ class Tracker:
         t.observations.append(Observation(seq, d.t_ns, d.blob, d.contour_in, valid))
         if d.blob.on_seam:
             t.flags |= TrackFlag.ON_SEAM
-        s.hist.append(_Hist(d.t_ns, d.cx, d.blob.area_px, edge, merged))
+        s.hist.append(_Hist(d.t_ns, d.cx, d.blob.area_px, edge, merged, d.cy))
+        if self.st is not None and len(t.observations) > _STATIONARY_WINDOW:
+            del t.observations[: len(t.observations) - _STATIONARY_WINDOW]
+            del s.hist[: len(s.hist) - _STATIONARY_WINDOW]
         if not merged:  # merged blobs say nothing about this part's own position
             s.lead, s.trail, s.cx, s.cy = d.lead, d.trail, d.cx, d.cy
         self._refresh_extents(s)
@@ -275,23 +400,28 @@ class Tracker:
         t.belt_x_lead_in = float(np.median(xs1))
         t.y_min_in = float(np.median(ys0))
         t.y_max_in = float(np.median(ys1))
-        t.t_first_ns = t.observations[0].t_capture_ns
+        t.t_first_ns = s.t_first_ns if self.st is not None else t.observations[0].t_capture_ns
         t.t_last_ns = t.observations[-1].t_capture_ns
 
-    def _finish(self, s: _State) -> Track:
-        t = s.track
+    def _flags(self, t: Track) -> TrackFlag:
         cfg = self.cfg
+        flags = TrackFlag(0)
         n_valid = sum(o.valid for o in t.observations)
         run = best = 0
         for o in t.observations:
             run = run + 1 if o.valid else 0
             best = max(best, run)
         if best < cfg.settle_frames:
-            t.flags |= TrackFlag.UNSETTLED
+            flags |= TrackFlag.UNSETTLED
         if n_valid < cfg.min_frames:
-            t.flags |= TrackFlag.FEW_FRAMES
+            flags |= TrackFlag.FEW_FRAMES
         if all(o.blob.touches_edge for o in t.observations):
-            t.flags |= TrackFlag.TOUCHES_EDGE
+            flags |= TrackFlag.TOUCHES_EDGE
+        return flags
+
+    def _finish(self, s: _State) -> Track:
+        t = s.track
+        t.flags |= self._flags(t)
         t.finished = True
         del self._states[s.slot]
         return t

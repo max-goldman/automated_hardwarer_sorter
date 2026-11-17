@@ -38,6 +38,23 @@ class PartSpec:
     t_enter_s: float  # time the part's centre crosses the left image edge
     y_in: float  # centre position across the belt, inches from the belt's top edge
     angle_deg: float = 0.0
+    # Still-belt scenes (additive): a part with ``x_in`` set does not move. It sits with its
+    # centre ``x_in`` inches from the left image edge, appears at ``t_enter_s`` and is taken away
+    # at ``t_off_s`` (None = stays).
+    x_in: float | None = None
+    t_off_s: float | None = None
+
+
+@dataclass
+class HandSpec:
+    """A hand-sized blob on a still belt: a dark bar from the top image edge down to ``y_in``
+    (inches from the belt's top edge), ``width_in`` wide, present from ``t_on_s`` to ``t_off_s``."""
+
+    t_on_s: float
+    t_off_s: float
+    x_in: float
+    y_in: float = 3.0
+    width_in: float = 1.6
 
 
 @dataclass
@@ -218,8 +235,11 @@ def _belt_strip(cfg: SceneConfig, rng: np.random.Generator) -> np.ndarray:
 class SyntheticRenderer:
     """Renders the frame for any time t (seconds). Deterministic for a given config and part list."""
 
-    def __init__(self, cfg: SceneConfig, parts: list[PartSpec]) -> None:
+    def __init__(
+        self, cfg: SceneConfig, parts: list[PartSpec], hands: list[HandSpec] | None = None
+    ) -> None:
         self.cfg = cfg
+        self.hands = hands or []
         self.parts = sorted(parts, key=lambda p: p.t_enter_s)
         rng = np.random.default_rng(cfg.seed)
         self._strip = _belt_strip(cfg, rng)
@@ -250,6 +270,11 @@ class SyntheticRenderer:
         return self._patches[key]
 
     def part_centre_px(self, part: PartSpec, t_s: float) -> tuple[float, float]:
+        if part.x_in is not None:
+            return (
+                part.x_in * self.cfg.px_per_in,
+                self.cfg.belt_top_px + part.y_in * self.cfg.px_per_in,
+            )
         return (
             (t_s - part.t_enter_s) * self._v_px_s,
             self.cfg.belt_top_px + part.y_in * self.cfg.px_per_in,
@@ -260,7 +285,11 @@ class SyntheticRenderer:
         return [
             p
             for p in self.parts
-            if -margin < self.part_centre_px(p, t_s)[0] < self.cfg.width + margin
+            if (
+                (p.t_enter_s <= t_s and (p.t_off_s is None or t_s < p.t_off_s))
+                if p.x_in is not None
+                else -margin < self.part_centre_px(p, t_s)[0] < self.cfg.width + margin
+            )
         ]
 
     def render(self, t_s: float, frame_index: int = 0) -> np.ndarray:
@@ -297,6 +326,16 @@ class SyntheticRenderer:
             )  # soft shadow around the part
             region *= 1.0 - a[ps]
             region += g[ps] * a[ps]
+        for hand in self.hands:
+            if hand.t_on_s <= t_s < hand.t_off_s:
+                ppi = cfg.px_per_in
+                x0, x1 = (
+                    round((hand.x_in - hand.width_in / 2) * ppi),
+                    round((hand.x_in + hand.width_in / 2) * ppi),
+                )
+                y1 = round(cfg.belt_top_px + hand.y_in * ppi)
+                region = frame[0:y1, max(x0, 0) : max(x1, 0)]
+                region[:] = 75.0 * region / cfg.belt_level  # skin: much darker than the belt
         if cfg.blur_sigma_px > 0:
             frame = cv2.GaussianBlur(frame, (0, 0), cfg.blur_sigma_px)
         frame *= self._bands
@@ -329,6 +368,30 @@ def random_parts(
     return parts
 
 
+def still_scene(cfg: SceneConfig) -> tuple[list[PartSpec], list[HandSpec], float]:
+    """A stopped-belt demo (the scene needs ``speed_in_s = 0``). The view is only ~3.5 in wide
+    and the rework gap is 1 in, so parts are placed and taken away one after another:
+
+    * each of the six classes sits alone for 1.2 s (one decision each),
+    * a washer sits while a hand passes over it (no decision while the hand is in view),
+    * a bolt, then a washer 0.6 in from it (the pair is re-decided: rework), then the washer is
+      taken away (the bolt's group is re-decided).
+
+    Returns (parts, hands, duration_s)."""
+    kinds = ("bolt_025", "nut_0375", "washer_025", "bolt_0375", "nut_025", "washer_0375")
+    parts = [
+        PartSpec(k, 0.6 + 1.5 * i, 1.0, 25.0 * i, x_in=1.75, t_off_s=0.6 + 1.5 * i + 1.2)
+        for i, k in enumerate(kinds)
+    ]
+    t = 0.6 + 1.5 * len(kinds)  # all six done
+    parts.append(PartSpec("washer_025", t, 1.0, 0.0, x_in=1.2, t_off_s=t + 3.2))
+    hands = [HandSpec(t + 1.4, t + 2.2, 1.2, y_in=1.2)]  # arm over the washer
+    t += 3.6
+    parts.append(PartSpec("bolt_025", t, 1.0, 0.0, x_in=1.0, t_off_s=t + 4.8))
+    parts.append(PartSpec("washer_025", t + 1.6, 1.0, 0.0, x_in=2.5, t_off_s=t + 3.2))
+    return parts, hands, t + 5.2
+
+
 @dataclass
 class _Timeline:
     t0_wall: float | None = None
@@ -346,10 +409,11 @@ class SyntheticSource(FrameSource):
         realtime: bool = True,
         duration_s: float | None = None,
         start_ns: int = 1_000_000_000,
+        hands: list[HandSpec] | None = None,
     ) -> None:
         self.cfg = cfg or SceneConfig()
         self.parts = parts if parts is not None else random_parts(40, self.cfg)
-        self.renderer = SyntheticRenderer(self.cfg, self.parts)
+        self.renderer = SyntheticRenderer(self.cfg, self.parts, hands)
         self._realtime = realtime
         self._duration_s = duration_s
         self._start_ns = start_ns

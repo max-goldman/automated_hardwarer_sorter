@@ -19,6 +19,7 @@ lens_focal_mm = 8.0         # used only as the fixed focal length in the distort
 pixel_pitch_um = 3.0        # OV9281
 
 [belt]
+mode = "moving"             # moving | stationary (parts placed by hand on a stopped belt; see [stationary])
 speed_in_s = 4.0            # nominal; the measured value is stored in calibration
 loop_length_in = 52.0       # nominal; one stitched seam per loop
 rework_gap_in = 1.0         # parts closer than this along the belt form one group
@@ -120,3 +121,14 @@ frame_stride = 2                # process a frame only when seq % frame_stride =
 feature_stride = 3              # feature extraction every Nth PROCESSED frame
 max_feature_frames = 10         # per-track cap on frames kept for features (>= classify/features minimums)
 queue_frames = 120              # pipeline input queue depth, frames
+
+[stationary]
+# Only used when belt.mode = "stationary" (sorter run --stationary). The belt is off: speed is 0,
+# nothing is timed, each settled part is decided once and the decision is shown immediately.
+move_tol_in = 0.05          # a valid observation moved less than this (inches) since the last one
+relocate_in = 0.15          # a measured part seen this far from where it was measured was moved: re-measure
+max_part_area_in2 = 1.0     # an edge-touching blob larger than this is a hand/arm (largest part, bolt_0375, ~0.53 in^2)
+settle_s = 0.5              # a part is measured this long after it is first seen (or at max_feature_frames)
+missed_s = 0.5              # a part unseen this long, with no hand in view, was removed (> 0)
+after_hand_s = 0.3          # no decision until a hand has been out of view this long
+give_up_s = 3.0             # a track that never measures cleanly is finalized after this long
