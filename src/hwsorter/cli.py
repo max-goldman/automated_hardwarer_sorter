@@ -13,6 +13,34 @@ import numpy as np
 from .config import load_config, machine_name
 
 
+def resolve_recording(cfg, spec: str):
+    """Find a recording: existing path, exact folder name, else newest `<timestamp>-<spec>`."""
+    from pathlib import Path
+
+    from .session import recordings_dir
+
+    path = Path(spec)
+    if path.exists():
+        return path
+    folder = recordings_dir(cfg)
+    exact = folder / spec
+    if exact.exists():
+        return exact
+    found = sorted(p for p in folder.glob(f"*-{spec}") if (p / "meta.json").exists())
+    if found:
+        return found[-1]  # timestamps sort lexically, so the last is the newest
+    available = sorted(m.parent.name for m in folder.glob("*/meta.json"))
+    listing = ", ".join(available) if available else "none"
+    raise FileNotFoundError(f"no recording matches {spec!r} in {folder} (available: {listing})")
+
+
+def _min_one(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def _cmd_camera_info(args: argparse.Namespace) -> int:
     from .calibration.exposure import flicker_stats
     from .camera import resolve_backend
@@ -109,7 +137,9 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     from .session import open_source
 
     cfg = load_config(args.config)
-    source, _ = open_source(cfg, args.recording, realtime=args.realtime)
+    source, _ = open_source(
+        cfg, str(resolve_recording(cfg, args.recording)), realtime=args.realtime
+    )
     reader = source.reader  # type: ignore[attr-defined]
     print(
         f"{reader.path}: {len(reader)} frames, {reader.duration_s:.2f} s, {reader.width}x{reader.height} at {reader.fps:g} fps, "
@@ -171,10 +201,38 @@ def _cmd_recordings(args: argparse.Namespace) -> int:
     return 0
 
 
+def _calibrate_flatfield(cfg, args: argparse.Namespace) -> int:
+    from .calibration import calibration_path, load_calibration, save_calibration
+    from .calibration.flatfield import build_flatfield
+    from .recording import RecordingReader
+
+    path = resolve_recording(cfg, args.recording)
+    with RecordingReader(path) as reader:
+        if len(reader) == 0:
+            raise ValueError(f"recording {path} has no frames")
+        step = max(1, len(reader) // args.max_frames)
+        frames = [frame.image for i, frame in enumerate(reader) if i % step == 0]
+    flat = build_flatfield(frames, max_frames=args.max_frames)
+    cal = load_calibration()
+    target = calibration_path().with_suffix(".flatfield.npy")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.save(target, flat)
+    cal.flatfield_file = target.name
+    save_calibration(cal)
+    print(
+        f"flat-field from {len(frames)} frames of {path.name}: "
+        f"min {flat.min():.0f}, max {flat.max():.0f}, mean {flat.mean():.0f} (gray levels)"
+    )
+    print(f"saved {target} and recorded it in {calibration_path()}")
+    return 0
+
+
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     from .calibration import calibration_path, load_calibration
 
     cfg = load_config(args.config)
+    if args.action == "flatfield":
+        return _calibrate_flatfield(cfg, args)
     if args.action == "target":
         from .calibration.target import board_size_mm, write_target_pdf
 
@@ -187,6 +245,12 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         return 0
     cal = load_calibration()
     print(f"machine: {machine_name()}   file: {calibration_path()}")
+    if cal.flatfield_file:
+        flat = calibration_path().parent / cal.flatfield_file
+        status = "ok" if flat.exists() else "MISSING (rebuild with calibrate flatfield)"
+        print(f"  flatfield {flat}  [{status}]")
+    else:
+        print("  flatfield not calibrated")
     for name in ("scale", "roi", "focus", "exposure", "belt"):
         value = getattr(cal, name)
         if value is None:
@@ -204,7 +268,11 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 def _cmd_gui(args: argparse.Namespace) -> int:
     from .gui.app import run
 
-    return run(load_config(args.config), args.source)
+    cfg = load_config(args.config)
+    source = args.source
+    if source not in ("camera", "synthetic"):
+        source = str(resolve_recording(cfg, source))
+    return run(cfg, source)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -248,12 +316,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "calibrate", help="calibration helpers (the interactive tools are in the GUI)"
     )
-    p.add_argument(
-        "action",
-        choices=["target", "show"],
-        help='"target" writes the printable target PDF; "show" prints saved calibration',
-    )
-    p.add_argument("--out", default="calibration-target.pdf")
+    csub = p.add_subparsers(dest="action", required=True)
+    q = csub.add_parser("target", help="write the printable calibration target PDF")
+    q.add_argument("--out", default="calibration-target.pdf")
+    csub.add_parser("show", help="print the saved calibration")
+    q = csub.add_parser("flatfield", help="build the illumination map from an empty-belt recording")
+    q.add_argument("recording", help="recording name or path (empty, moving belt)")
+    q.add_argument("--max-frames", type=_min_one, default=80, help="frames used for the median")
     p.set_defaults(func=_cmd_calibrate)
     return parser
 
