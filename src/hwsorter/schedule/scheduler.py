@@ -14,6 +14,7 @@ Every send log record carries ``timings["uncalibrated"]`` while timing values ar
 from __future__ import annotations
 
 import heapq
+import logging
 import threading
 from collections import deque
 from dataclasses import dataclass, field
@@ -32,6 +33,8 @@ from ..contracts import (
     SendRecord,
     to_log_dict,
 )
+
+_log = logging.getLogger(__name__)
 
 _POLL_CAP_S = 0.02  # longest coarse wait, so a ManualClock advance is noticed promptly
 
@@ -171,7 +174,10 @@ class Scheduler:
                 if not self._heap or self._heap[0].t_send_ns > self._clock.now_ns():
                     continue
                 item = heapq.heappop(self._heap)
-            self._fire(item, self._clock.now_ns())
+            try:
+                self._fire(item, self._clock.now_ns())
+            except Exception:
+                _log.exception("scheduler: error firing group %s", item.group_id)
 
     def _fire(self, item: _Item, t_actual_ns: int) -> None:
         miss = item.miss

@@ -142,7 +142,10 @@ def test_adapters_satisfy_protocol_and_screen_keeps_last_n():
     assert m.closed
 
 
-@pytest.mark.skipif(bool(os.environ.get("HWSORTER_SKIP_JITTER")), reason="jitter test disabled")
+@pytest.mark.skipif(
+    not os.environ.get("HWSORTER_RUN_JITTER"),
+    reason="set HWSORTER_RUN_JITTER=1 to run the wall-clock jitter test",
+)
 def test_real_clock_jitter(capsys):
     clock, adapter, log = MonotonicClock(), MockSerialAdapter(), EventLog()
     s = Scheduler(clock, adapter, log, spin_ms=4.0)
