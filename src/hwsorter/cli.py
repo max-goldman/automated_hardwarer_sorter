@@ -420,6 +420,33 @@ def _cmd_grade(args: argparse.Namespace) -> int:
     return run_grading(path, args.labels)
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .config import project_root
+    from .report import RerunError, generate
+
+    sessions = []
+    for name in args.session:
+        path = Path(name)
+        if not path.exists() and (project_root() / "sessions" / name).exists():
+            path = project_root() / "sessions" / name
+        sessions.append(path)
+    cfg = load_config(args.config) if args.rerun else None
+    try:
+        data, csv_path, html_path = generate(sessions, args.out, rerun=args.rerun, cfg=cfg)
+    except (FileNotFoundError, RerunError) as e:
+        print(f"error: {e}")
+        return 2
+    for c in data.checks:
+        print(
+            f"{c.verdict:<5} {c.name}: {c.measured if c.measured is not None else 'n/a'} (target {c.target_text})"
+        )
+    print(f"overall: {data.overall}")
+    print(f"wrote {csv_path}\nwrote {html_path}")
+    return 0 if data.overall == "PASS" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sorter", description="Hardware sorter vision program")
     parser.add_argument(
@@ -480,6 +507,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("session", help="session folder (or name under sessions/) or decision-log file")
     p.add_argument("--labels", help="label store path (default: <session>/labels.jsonl)")
     p.set_defaults(func=_cmd_grade)
+
+    p = sub.add_parser(
+        "report", help="accuracy and latency report (CSV + HTML) from graded sessions"
+    )
+    p.add_argument("session", nargs="+", help="session folder(s) (or names under sessions/)")
+    p.add_argument(
+        "--rerun",
+        action="store_true",
+        help="first re-run each graded recording through the current pipeline (full replay)",
+    )
+    p.add_argument("--out", help="output folder (default: the first session folder)")
+    p.set_defaults(func=_cmd_report)
 
     p = sub.add_parser("recordings", help="list recordings")
     p.set_defaults(func=_cmd_recordings)
