@@ -125,7 +125,7 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | --- | --- | --- |
 | 019 `sorter measure` | IN_PROGRESS | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
 | 020 stationary-belt mode | IN_PROGRESS | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
-| 021 cross-machine compare | IN_PROGRESS | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
+| 021 cross-machine compare | DONE, merged | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
 
 Open design question for the user (not scheduled): stacked/touching parts that never separate form ONE blob -> lone part -> MISC; the brief says stacked parts go to REWORK. Candidate: a "looks like several parts" flag. Safe today (never contamination).
 
