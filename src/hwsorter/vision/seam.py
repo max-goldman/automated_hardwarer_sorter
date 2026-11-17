@@ -34,17 +34,16 @@ _DS = 2  # downsample factor for detection
 _DEFAULT_PX_PER_IN = 367.0  # only sizes search windows when the scale is unknown
 _MIN_CONTRAST = 0.02  # minimum seam dip (flat units, belt = 1.0) to declare it present
 _DIP_CLIP = 0.2  # per-pixel dip is clipped to this so parts do not dominate the profile
-_MIN_COVERAGE = 0.4  # fraction of ROI rows a profile column needs to be considered
+_MIN_COVERAGE = 0.2  # fraction of ROI rows a profile column needs (was 0.4: too high, so the seam
+# went undetected while entering/exiting the view and its blobs leaked through as spurious parts)
 _SPEED_COVERAGE = 0.7  # fraction of the seam line that must be in view for a speed sighting
 _SPEED_MIN_SIGHTINGS = 5
 _PASS_GAP_S = 0.15  # time without a seam sighting that ends a pass
 _PASS_JUMP_PX = 60.0  # backward jump of the seam centre that starts a new pass
 _REPAIR_EPS = 0.08  # |flat / template - 1| below this is "explained by the seam"
-_SEAM_DIP = 0.03  # only template pixels this much below belt are seam; belt-level is never subtracted
 _MARGIN_FRAC = 0.15  # band margin (fraction of width) that still counts as seam stitching
-_SEAM_BAND_FRAC = 0.80  # a blob with at least this area fraction inside the band is seam, not a part
-_SEAM_RESIDUE_FRAC = 0.80  # on a detected seam, output blobs this far inside the band are seam residue
-_EDGE_STRIP_IN = 0.15  # belt-edge shading strips at the ROI top/bottom are thinner than this (inches)
+_SEAM_BAND_FRAC = 0.80  # a blob with this area fraction inside the band is seam, not a part
+_SEAM_RESIDUE_FRAC = 0.80  # on a seam, output blobs this far inside the band are seam residue
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -198,7 +197,7 @@ class SeamHandler:
         self._update_speed(p, det)
         return out, self._obs(p, det, g, present=True)
 
-    def _is_seam_residue(self, b: Blob, xc: float, h_img: int, hw: float, roi) -> bool:  # noqa: ANN001
+    def _is_seam_residue(self, b: Blob, xc: float, h_img: int, hw: float, roi) -> bool:
         """A blob left over from the seam itself (within the band, or a belt-edge strip)."""
         if self._band_area_frac(b, xc, h_img, hw) >= _SEAM_RESIDUE_FRAC:
             return True
@@ -445,10 +444,7 @@ class SeamHandler:
         dist = (xs[None, :] - self._x_at(xc, ys, h_img)[:, None]) * self._sin
         hw = width_px / 2.0
         inband = np.abs(dist) <= hw * (1.0 + 2 * _MARGIN_FRAC)
-        # Only subtract where the template is an actual seam dip (darker than belt) and the frame
-        # matches it. A part's own belt-bright surface (a bolt's shank highlight) sits at belt
-        # level, so it is never mistaken for the seam and the part is not punched into fragments.
-        explained = inband & (np.abs(ratio - 1.0) < _REPAIR_EPS) & (tmpl < 1.0 - _SEAM_DIP)
+        explained = inband & (np.abs(ratio - 1.0) < _REPAIR_EPS)
         clean = (mask > 0) & ~explained
         clean_u8 = clean.astype(np.uint8)
 

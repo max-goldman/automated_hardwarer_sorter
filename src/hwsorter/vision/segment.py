@@ -52,7 +52,7 @@ _FACET_BAND_LO = 0.955  # facet band lower bound (flat units, belt = 1.0); below
 _FACET_BAND_HI = 0.992  # facet band upper bound; above is belt
 _FACET_DARK_LEVEL = 0.50  # a facet is grown only where it adjoins a part this much darker than belt
 _FACET_SEED_DILATE_PX = 9  # bridges the facet/head gradient ramp between the band and the dark head
-_FACET_OPEN_PX = 7  # drop thin band strips (the shank-edge transition) and keep the solid facet
+_EDGE_BAND_FRAC = 0.12  # bright belt-edge band cleared within this fraction of the strip depth
 
 
 class Preprocessor:
@@ -222,6 +222,12 @@ def _segment_window(
     # only from band pixels that adjoin the deep-dark head, so the head silhouette is captured
     # whole every frame without pulling in the soft-shadow halo or leaking onto the belt.
     facet = (sm > _FACET_BAND_LO) & (sm < _FACET_BAND_HI) & valid & ~strong
+    # Keep the facet grow off the belt-edge shading strips at the ROI top/bottom: they sit in the
+    # same below-belt band, so without this an edge-near head floods down the strip and the part
+    # merges with it into one tall blob (the thin-strip drop below never fires on the merged blob).
+    rows_full = np.arange(y0, y1, dtype=np.float32)[:, None]
+    in_strip = (rows_full < top + strip_px) | (rows_full >= bottom - strip_px)
+    facet &= ~in_strip
     deep = (strong & (sm < _FACET_DARK_LEVEL)).astype(np.uint8)
     if facet.any() and deep.any():
         ksz = _FACET_SEED_DILATE_PX
@@ -233,6 +239,17 @@ def _segment_window(
             lut[lab[seed]] = True
             lut[0] = False
             mask = (mask | lut[lab].astype(np.uint8)).astype(np.uint8)
+    # Clear the belt-edge highlight band at the ROI top/bottom before closing and filling: the
+    # flat-field leaves a thin brighter-than-belt sliver right at each belt edge, and a part whose
+    # silhouette reaches the edge (a bolt lying head-to-edge) otherwise fuses with this full-width
+    # band into one oversized blob -- the thin-strip drop below never fires on the merged blob, so
+    # its min-area rectangle gains the band's width and it misclassifies. Part silhouettes read at
+    # or below belt, so clearing only the brighter-than-belt pixels in a thin margin at the very
+    # boundary drops the band and leaves the part; the dark edge-shading band is still handled by
+    # the thin-strip drop after contouring. The margin stays narrow so it clears just the band.
+    band_px = max(round(strip_px * _EDGE_BAND_FRAC), cfg.close_kernel_px + 2)
+    near_edge = (rows_full < top + band_px) | (rows_full >= bottom - band_px)
+    mask[near_edge & (sm > 1.0 + cfg.edge_threshold)] = 0
     if cfg.close_kernel_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.close_kernel_px,) * 2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)

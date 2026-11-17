@@ -32,6 +32,11 @@ from ..config import TrackConfig
 from ..contracts import Blob, Observation, Track, TrackFlag
 
 NS_PER_S = 1_000_000_000
+# A track never seen cleanly is dropped only if it rode the belt (its belt-frame centre drifted
+# less than this fraction of the belt travel over its life -- a seam tail or an edge/merge
+# fragment of a real part). An image-fixed blob that did not travel with the belt drifts by the
+# full belt travel and is kept, so a genuine degenerate track is still reported.
+_BELT_RIDE_DRIFT_FRAC = 0.7
 
 
 @dataclass
@@ -108,13 +113,35 @@ class Tracker:
 
         # Merge detection: predicted positions of >= 2 tracks inside one blob.
         for j, d in enumerate(dets):
-            inside = [s for s in states if self._predicted_inside(s, d, shift)]
-            if len(inside) >= 2:
-                used.add(j)
+            inside = [
+                s for s in states if s.slot in self._states and self._predicted_inside(s, d, shift)
+            ]
+            if len(inside) < 2:
+                continue
+            used.add(j)
+            confirmed = [s for s in inside if s.track.track_id != 0]
+            if len(confirmed) >= 2:
+                # Two or more real parts share one blob: a genuine merge. Flag them MERGED; drop
+                # any never-confirmed fragment riding along (it is not a third part).
                 for s in inside:
                     matched.add(s.slot)
-                    s.track.flags |= TrackFlag.MERGED
-                    self._observe(s, seq, d, shift, merged=True)
+                    if s.track.track_id != 0:
+                        s.track.flags |= TrackFlag.MERGED
+                        self._observe(s, seq, d, shift, merged=True)
+                    else:
+                        del self._states[s.slot]
+            else:
+                # At most one real part here; the others are duplicate/fragment pieces of this one
+                # blob (a shank tip split off at the image edge, or seam residue drawn into it).
+                # Keep the real part (else the oldest) and absorb the rest, so one blob is one
+                # track and the part is not lost to a spurious MERGE.
+                keep = confirmed[0] if confirmed else min(inside, key=lambda s: s.slot)
+                for s in inside:
+                    if s is not keep:
+                        matched.add(s.slot)
+                        del self._states[s.slot]
+                matched.add(keep.slot)
+                self._observe(keep, seq, d, shift, merged=False)
 
         # Greedy nearest assignment on remaining tracks and blobs.
         pairs = []
@@ -157,9 +184,23 @@ class Tracker:
             trail_x = s.trail + shift  # image-plane x of the trailing edge now
             if trail_x > self._right_in or s.missed > self.cfg.max_missed_frames:
                 t = self._finish(s)
-                if t.track_id != 0:
-                    finished.append(t)
+                if t.track_id == 0 and self._rode_the_belt(s):
+                    continue  # a seam tail or edge/merge fragment: drop, it is not a part
+                if t.track_id == 0:
+                    t.track_id = self._next_id
+                    self._next_id += 1
+                finished.append(t)
         return finished
+
+    def _rode_the_belt(self, s: _State) -> bool:
+        """True if this (never-confirmed) track travelled with the belt -- its belt-frame centre
+        barely drifted -- rather than sitting still in the image like a stuck/degenerate blob."""
+        h = s.hist
+        if len(h) < 2:
+            return True
+        dt = (h[-1].t_ns - h[0].t_ns) / NS_PER_S
+        drift = abs(h[-1].cx - h[0].cx)
+        return drift <= _BELT_RIDE_DRIFT_FRAC * abs(self.v) * dt
 
     # ------------------------------------------------------------------ internals
     def _detect(self, blob: Blob, t_ns: int, shift: float) -> _Det:
@@ -187,7 +228,8 @@ class Tracker:
     def _observe(self, s: _State, seq: int, d: _Det, shift: float, merged: bool) -> None:
         cfg = self.cfg
         edge = d.blob.touches_edge
-        valid = not edge and not merged
+        clean = not edge and not merged  # a plain in-view sighting (may still be area-unstable)
+        valid = clean
         if valid:
             ref = [h for h in s.hist[-cfg.settle_frames :] if not h.edge and not h.merged]
             if ref:
@@ -205,7 +247,10 @@ class Tracker:
             ):
                 valid = False
         t = s.track
-        if valid and t.track_id == 0:  # first valid frame: this track is a real part now
+        # A track earns its public id (and is emitted) once it is seen cleanly in view at least
+        # once -- a real part, even if its area never settles. A track only ever at the image
+        # edge or merged (a seam tail, or an edge/merge fragment) never earns one and is dropped.
+        if clean and t.track_id == 0:
             t.track_id = self._next_id
             self._next_id += 1
         t.observations.append(Observation(seq, d.t_ns, d.blob, d.contour_in, valid))

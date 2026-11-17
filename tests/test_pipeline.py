@@ -258,16 +258,6 @@ def test_non_bolt_30_part_stream_is_perfect(rig_noseam):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "segment.py is unstable on bolts (bright head facet / shank highlight): area jumps "
-        "50k-70k px per frame, a tip fragment splits off at the image edge (spurious track, "
-        "MERGED), and seam fragments near the ROI top leak through. Seed 5 with seam: 25/30 "
-        "correct (4 bolts + 1 washer next to a seam sliver), 34 tracks for 30 parts, 0 wrong "
-        "class-bin contaminations. Remove this mark once 004/005 are fixed."
-    ),
-)
 def test_end_to_end_30_parts_with_seam(rig):
     """6 classes x 5 with the seam present: the spec'd end-to-end acceptance test."""
     parts = thirty_parts()
@@ -384,15 +374,6 @@ def seam_t_enter(scene: SceneConfig, lap: int) -> float:
     return (scene.loop_length_in * lap - scene.seam_at_in) / scene.speed_in_s
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "segment() returns a 0.16 in tall, ~1.7 in wide sliver along the ROI top edge where the "
-        "seam's top end meets the belt edge (area 0.022 in2, just over the 0.15 in edge-strip "
-        "rule); seam.py flags it on_seam but does not remove it, so the tracker makes a part "
-        "from it on every lap and it goes to MISC (3 spurious tracks/sends in 3 laps)."
-    ),
-)
 def test_seam_alone_never_produces_output():
     rig = lap_rig()
     scene = rig.scene
@@ -419,10 +400,12 @@ def test_seam_alone_never_produces_output():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "bolt_0375 on the seam (seam template learned on a part-free first lap) gives 5 tracks "
-        "instead of 1: two seam slivers (see test_seam_alone_never_produces_output) plus the "
-        "bolt itself as TWO duplicate tracks, both MERGED with 0 valid frames -> UNRESOLVED. "
-        "Remove this mark once the real segment()/seam/track cooperate on a bolt over the seam."
+        "The seam slivers are gone now and the seam no longer yields parts, but a bolt_0375 "
+        "lying ALONG the travel axis (angle 0) over the seam still splits into two duplicate "
+        "MERGED tracks with 0-1 valid frames -> UNRESOLVED -> rework. The axis-aligned bolt is "
+        "the hard case: its width profile is near-degenerate even off the seam, and the seam "
+        "repair under it leaves the head end tapering so head_length reads ~0. Remove this mark "
+        "once the seam-repaired, axis-aligned bolt tracks as one part and classifies as a bolt."
     ),
 )
 def test_bolt_on_seam_is_one_part_not_split():
