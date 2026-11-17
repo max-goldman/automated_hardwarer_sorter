@@ -1,0 +1,7 @@
+I need to write a program for an automated hardware sorting machine. The machine is meant to sort a bin of mixed fasteners/hardware into sorted bins. Please help me draft a project description doc to give to claude fable. Ask me any questions to eliminate assumptions. The hardware sorter works as follows:
+Hardware is placed on a vibratory feeder
+The feeder feeds onto a conveyor moving at ~1.33in/s
+The conveyor moves the hardware onto a second conveyor moving at 4in/s
+An Innomaker OV9281 U20CAM-9281M (120fps global shutter, 1280x800px) is focused on a ~2x3.2in section of the conveyor (the conveyor is 2in wide, entire height is captured in view while a 3.3in section of length is in view), it takes a frame of the hardware (ideally singulated by now) and identifies it
+The hardware runs off the end of a conveyor to a rotary bin sorting system, which spins to catch the hardware in the correct bin.
+The scope of our current prototype is the following hardware: 5x 1/4in-20 1in bolts, 5x 
