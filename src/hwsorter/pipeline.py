@@ -176,6 +176,48 @@ def synthetic_calibration(scene: Any) -> tuple[Calibration, np.ndarray]:
     return cal, flat
 
 
+def build_pipeline(
+    cfg: SorterConfig,
+    source: FrameSource,
+    clock: Clock,
+    adapter: Any,
+    log_: Any,
+    session_dir: str | Path | None = None,
+    scene: Any = None,
+) -> Pipeline:
+    """A Pipeline calibrated for ``source``: the synthetic rig for synthetic scenes and
+    recordings of them, otherwise the saved machine calibration (provisional scale if none)."""
+    from .calibration import load_calibration
+
+    info = source.info
+    meta = getattr(getattr(source, "reader", None), "meta", {}) or {}
+    flat = None
+    if info.name == "synthetic" or meta.get("source") == "synthetic":
+        from .synthetic import SceneConfig
+
+        scene = scene or SceneConfig(
+            width=info.width,
+            height=info.height,
+            fps=info.fps,
+            speed_in_s=cfg.belt.speed_in_s,
+            loop_length_in=cfg.belt.loop_length_in,
+        )
+        cal, flat = synthetic_calibration(scene)
+    else:
+        cal = load_calibration()
+    return Pipeline(
+        cfg,
+        cal,
+        clock,
+        adapter,
+        log_,
+        flat=flat,
+        session_dir=session_dir,
+        image_size=(info.width, info.height),
+        source_name=info.name,
+    )
+
+
 def summarize(values: list[float]) -> StageSummary:
     a = np.asarray(values, np.float64)
     if a.size == 0:
@@ -724,6 +766,70 @@ def drive(source: FrameSource, pipeline: Pipeline, limit: int | None = None) -> 
         pass
     pipeline.flush()
     return n
+
+
+class RebasedSource(FrameSource):
+    """Shifts a source's timestamps onto the host monotonic clock (first frame = now), so a
+    recording or synthetic scene can drive the live-clock pipeline (``run --realtime``)."""
+
+    def __init__(self, inner: FrameSource) -> None:
+        self._inner = inner
+        self._offset: int | None = None
+        self.info = inner.info
+
+    def start(self) -> None:
+        self._inner.start()
+        self._offset = None
+
+    def read(self, timeout: float = 1.0) -> Frame | None:
+        frame = self._inner.read(timeout)
+        if frame is None:
+            return None
+        if self._offset is None:
+            self._offset = time.monotonic_ns() - frame.t_capture_ns
+        return Frame(
+            frame.seq,
+            frame.t_capture_ns + self._offset,
+            frame.t_arrival_ns + self._offset,
+            frame.image,
+        )
+
+    def stop(self) -> None:
+        self._inner.stop()
+
+    def stats(self) -> Any:
+        return self._inner.stats()
+
+
+def open_run_source(
+    cfg: SorterConfig,
+    spec: str,
+    *,
+    realtime: bool,
+    seconds: float | None = None,
+    parts: int | None = None,
+) -> FrameSource:
+    """A finite source for ``sorter run`` / ``replay --pipeline``: "synthetic" (a random,
+    singulated part stream rendered from the config's scene) or a recording path. With
+    ``realtime`` the source is paced and rebased onto the host monotonic clock."""
+    if spec == "synthetic":
+        from .synthetic import SceneConfig, SyntheticSource, random_parts
+
+        scene = SceneConfig(
+            width=cfg.camera.width,
+            height=cfg.camera.height,
+            fps=cfg.camera.fps,
+            speed_in_s=cfg.belt.speed_in_s,
+            loop_length_in=cfg.belt.loop_length_in,
+        )
+        plist = random_parts(parts or 10, scene, seed=0, spacing_s=0.8)
+        duration = seconds or (max((p.t_enter_s for p in plist), default=0.0) + 2.5)
+        source: FrameSource = SyntheticSource(scene, plist, realtime=realtime, duration_s=duration)
+    else:
+        from .recording import ReplaySource
+
+        source = ReplaySource(spec, realtime=realtime)
+    return RebasedSource(source) if realtime else source
 
 
 class PipelineRunner:

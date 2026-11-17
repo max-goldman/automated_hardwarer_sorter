@@ -132,11 +132,144 @@ def _cmd_record(args: argparse.Namespace) -> int:
         session.stop()
 
 
+def _report_pipeline(pipeline, log, adapter_name: str) -> int:
+    """Print a run summary; exit status 1 if any frame was dropped (a FAIL)."""
+    ends = log.recent("session_end")
+    end = ends[-1] if ends else {}
+    print(
+        f"{adapter_name}: {end.get('n_frames', 0)} frames, {end.get('n_parts', 0)} parts, "
+        f"{end.get('n_groups', 0)} groups, {end.get('n_sends', 0)} sends "
+        f"({end.get('n_late', 0)} late), {end.get('n_dropped', 0)} dropped"
+    )
+    for stage, s in pipeline.stage_timings().items():
+        print(f"  {stage:10s} mean {s['mean']:7.2f} ms  p99 {s['p99']:7.2f} ms  n={s['count']}")
+    if pipeline.n_dropped:
+        print(f"FAIL: {pipeline.n_dropped} frames were dropped by a queue overflow")
+        return 1
+    return 0
+
+
+def _pipeline_paths(cfg, decision_log: str | None):
+    """(session folder, decision-log path) for a run; a given log path puts crops beside it."""
+    from datetime import datetime
+    from pathlib import Path
+
+    from .config import project_root
+
+    if decision_log:
+        path = Path(decision_log)
+        path.unlink(missing_ok=True)  # a fresh log per run
+        return path.parent, path
+    session = project_root() / "sessions" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    return session, session / cfg.pipeline.decision_log_dir / "decision_log.jsonl"
+
+
+def _run_pipeline(
+    cfg, spec: str, *, fast: bool, mock: bool, decision_log, seconds=None, parts=None
+) -> int:
+    """Assemble source -> pipeline -> adapter and run it to the end of the source.
+
+    fast: ManualClock, the pipeline is the only consumer and blocks rather than drops.
+    live clock: source -> capture service -> bounded queue -> pipeline thread."""
+    from .clock import ManualClock, MonotonicClock
+    from .eventlog import EventLog
+    from .frames import EndOfStream
+    from .output import MockSerialAdapter, ScreenLogAdapter
+    from .pipeline import (
+        Pipeline,
+        PipelineRunner,
+        build_pipeline,
+        drive,
+        open_run_source,
+    )
+
+    session_dir, log_path = _pipeline_paths(cfg, decision_log)
+    log = EventLog(log_path)
+    adapter = (
+        MockSerialAdapter()
+        if mock
+        else ScreenLogAdapter(
+            cfg.scheduler.screen_log_keep, uncalibrated=not cfg.timing.calibrated, echo=print
+        )
+    )
+    name = "mock-serial" if mock else "screen-log"
+    print(f"decision log: {log_path}")
+    pipeline: Pipeline
+    if fast:
+        source = open_run_source(cfg, spec, realtime=False, seconds=seconds, parts=parts)
+        pipeline = build_pipeline(cfg, source, ManualClock(0), adapter, log, session_dir)
+        source.start()
+        try:
+            drive(source, pipeline)
+        finally:
+            source.stop()
+        pipeline.close()
+        log.close()
+        return _report_pipeline(pipeline, log, name)
+
+    clock = MonotonicClock(round(cfg.scheduler.spin_ms * 1e6))
+    if spec == "camera":
+        from .session import Session
+
+        session = Session(cfg, "camera")
+        pipeline = build_pipeline(cfg, session.source, clock, adapter, log, session_dir)
+        session.start()
+        session.start_pipeline(pipeline)
+        capture = session.capture
+    else:
+        from .capture import CaptureService
+
+        source = open_run_source(cfg, spec, realtime=True, seconds=seconds, parts=parts)
+        pipeline = build_pipeline(cfg, source, clock, adapter, log, session_dir)
+        capture = CaptureService(source, log)
+        runner = PipelineRunner(pipeline, capture.subscribe("pipeline", cfg.pipeline.queue_frames))
+        runner.start()
+        capture.start()
+    try:
+        end = time.monotonic() + seconds if seconds and spec == "camera" else None
+        while not capture.wait_ended(0.2):
+            if end is not None and time.monotonic() > end:
+                break
+    except (KeyboardInterrupt, EndOfStream):
+        pass
+    wait_s = 15.0  # let queued sends fire before closing
+    if spec == "camera":
+        session.stop()  # stops the pipeline runner, which flushes and closes
+    else:
+        capture.stop()
+        runner.wait_done(10.0)
+        runner.stop(wait_s)
+    log.close()
+    return _report_pipeline(pipeline, log, name)
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    cfg = load_config(args.config)
+    spec = args.source
+    if spec not in ("camera", "synthetic"):
+        spec = str(resolve_recording(cfg, spec))
+    fast = args.fast or (not args.realtime and spec != "camera")
+    if not args.headless:
+        print("note: the live GUI overlay is task 014; running headless")
+    return _run_pipeline(
+        cfg,
+        spec,
+        fast=fast,
+        mock=False,
+        decision_log=args.decision_log,
+        seconds=args.seconds,
+        parts=args.parts,
+    )
+
+
 def _cmd_replay(args: argparse.Namespace) -> int:
     from .frames import EndOfStream
     from .session import open_source
 
     cfg = load_config(args.config)
+    if args.pipeline:  # the identical pipeline, MockSerialAdapter + ManualClock
+        spec = str(resolve_recording(cfg, args.recording))
+        return _run_pipeline(cfg, spec, fast=True, mock=True, decision_log=args.decision_log)
     source, _ = open_source(
         cfg, str(resolve_recording(cfg, args.recording)), realtime=args.realtime
     )
@@ -308,7 +441,26 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("replay", help="read a recording back and verify it")
     p.add_argument("recording", help="recording name or path")
     p.add_argument("--realtime", action="store_true", help="pace playback to the recorded timing")
+    p.add_argument(
+        "--pipeline",
+        action="store_true",
+        help="run the full vision pipeline (MockSerialAdapter, ManualClock) instead of just reading",
+    )
+    p.add_argument("--decision-log", help="decision log path for --pipeline (crops go beside it)")
     p.set_defaults(func=_cmd_replay)
+
+    p = sub.add_parser("run", help="run the sorting pipeline on a source")
+    p.add_argument(
+        "--source", default="camera", help='"camera", "synthetic", or a recording name or path'
+    )
+    p.add_argument("--headless", action="store_true", help="no GUI")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--realtime", action="store_true", help="live clock, paced source")
+    mode.add_argument("--fast", action="store_true", help="ManualClock, as fast as possible")
+    p.add_argument("--seconds", type=float, help="stop after this long (synthetic scene length)")
+    p.add_argument("--parts", type=_min_one, help="synthetic: number of parts (default 10)")
+    p.add_argument("--decision-log", help="decision log path (default: under sessions/)")
+    p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser("recordings", help="list recordings")
     p.set_defaults(func=_cmd_recordings)
