@@ -1,7 +1,8 @@
 # Inbox (needs the human)
 
 ## Open
-(none blocking software work)
+1. Second part size: the rig parts are 5/16, the brief says 3/8. Which is the product set? (asked 2026-11-17)
+2. Printed target 50 mm bar: measured length? Camera reads 3-5% large. (asked 2026-11-17)
 
 ## Answered or deferred
 1. **Lighting flicker:** deferred by the user (2026-11-17). Assume steady lighting. Last measurement: 52% of frames dimmed, worst 31% down, at 1.0 ms.

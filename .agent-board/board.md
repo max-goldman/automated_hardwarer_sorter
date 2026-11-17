@@ -147,3 +147,5 @@ Open design question for the user (not scheduled): stacked/touching parts that n
 - Exposure 8 ms (config/local.toml on the rig Mac): spans the dimmable lights' ~4 ms PWM period, 0% dimmed frames, belt ~200/255. Too much blur for a moving belt.
 - Scale 387.7 px/in (3 views, 382-393 spread, fit 0.75 px). ROI rows 52-789. Flat-field from `empty-belt-still` (stationary).
 - Ambient light is uncontrolled: ±5-8% spatial illumination drift between captures (operator position, room light). Recommended to the user: hood the rig, diffuse the lamp.
+- Caliper truths (user, `hardware-reference-pics/reference-pic-measurements.md`): the "3/8" bolt, nut and washer on the rig are actually 5/16 (bolt shank 7.66 mm, head AF 12.57; nut AF 12.58; washer 8.78 x 19.07 mm). Both nuts are nyloc. Asked the user whether the product set is 5/16 or 3/8 (OPEN).
+- Camera reads 3-5% large against calipers (1/4 washer OD +4.6%, 1/4 nut AF +4.6%, 1/4 bolt length +5.1%). Asked the user what the printed 50 mm bar measured (OPEN).
