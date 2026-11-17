@@ -181,7 +181,7 @@ class SeamHandler:
 
     def _default_half(self) -> int:
         half_x = 0.5 * self._width_px() / self._sin
-        return int(math.ceil(1.6 * half_x)) + 4
+        return math.ceil(1.6 * half_x) + 4
 
     def _geometry(self, p: Prepared) -> _Geom:
         h_img, w_img = p.flat.shape
@@ -195,8 +195,8 @@ class SeamHandler:
         s_min = roi.left - (roi.bottom - 1 - h_img / 2) * cot
         s_max = roi.right - 1 - (roi.top - h_img / 2) * cot
         off = (ds - 1) / 2
-        sm0 = int(math.floor((s_min - roi.left - off) / ds))
-        ncols = int(math.ceil((s_max - roi.left - off) / ds)) - sm0 + 2
+        sm0 = math.floor((s_min - roi.left - off) / ds)
+        ncols = math.ceil((s_max - roi.left - off) / ds) - sm0 + 2
         m = np.array(
             [[1.0, cot, sm0 + (off + roi.top - h_img / 2) * cot / ds], [0.0, 1.0, 0.0]], np.float32
         )
@@ -270,7 +270,7 @@ class SeamHandler:
             return absent
         d = np.where(valid, num_col / np.maximum(den_col, 1e-6), 0.0)
         baseline = float(np.median(d[valid]))
-        bw = max(3, int(round(0.5 * self._width_px() / self._sin / _DS * 2)))
+        bw = max(3, round(0.5 * self._width_px() / self._sin / _DS * 2))
         score = np.convolve(d, np.ones(bw) / bw, mode="same")
         score[~valid] = -1.0
         k = int(np.argmax(score))
@@ -304,9 +304,7 @@ class SeamHandler:
         return _Det(True, float(xc), angle, contrast, coverage)
 
     @staticmethod
-    def _centroid(
-        d: np.ndarray, valid: np.ndarray, baseline: float, lo: int, hi: int
-    ) -> float:
+    def _centroid(d: np.ndarray, valid: np.ndarray, baseline: float, lo: int, hi: int) -> float:
         w = np.clip(d[lo:hi] - baseline, 0.0, None) * valid[lo:hi]
         tot = float(w.sum())
         if tot <= 1e-9:
@@ -323,7 +321,11 @@ class SeamHandler:
         j = k
         while j < len(score) - 1 and valid[j + 1] and score[j + 1] >= half_level:
             j += 1
-        if i == 0 or j == len(score) - 1 or not (valid[max(i - 1, 0)] and valid[min(j + 1, len(score) - 1)]):
+        if (
+            i == 0
+            or j == len(score) - 1
+            or not (valid[max(i - 1, 0)] and valid[min(j + 1, len(score) - 1)])
+        ):
             return True  # clipped by the edge of the search range: cannot judge
         fwhm_perp = (j - i + 1) * _DS * self._sin
         return abs(fwhm_perp - self._width_px()) <= self._cfg.width_tol_in * (self._ppi or 0.0) * 2
@@ -380,10 +382,10 @@ class SeamHandler:
         roi = p.roi
         pad = 4
         c = b.contour_px
-        x0 = max(int(math.floor(c[:, 0].min())) - pad, 0)
-        x1 = min(int(math.ceil(c[:, 0].max())) + pad + 1, w_img)
-        y0 = max(int(math.floor(c[:, 1].min())) - pad, 0)
-        y1 = min(int(math.ceil(c[:, 1].max())) + pad + 1, h_img)
+        x0 = max(math.floor(c[:, 0].min()) - pad, 0)
+        x1 = min(math.ceil(c[:, 0].max()) + pad + 1, w_img)
+        y0 = max(math.floor(c[:, 1].min()) - pad, 0)
+        y1 = min(math.ceil(c[:, 1].max()) + pad + 1, h_img)
         mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
         pts = np.round((c - [x0, y0]) * 8).astype(np.int32)
         cv2.fillPoly(mask, [pts], 1, shift=3)
@@ -399,7 +401,7 @@ class SeamHandler:
         clean = (mask > 0) & ~explained
         clean_u8 = clean.astype(np.uint8)
 
-        k = max(3, int(round(width_px)) | 1)
+        k = max(3, round(width_px) | 1)
         closed = cv2.morphologyEx(
             clean_u8, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         )
@@ -413,7 +415,7 @@ class SeamHandler:
         keep = [i + 1 for i in range(n - 1) if areas[i] >= max(0.2 * areas.max(), 30.0)]
         out: list[Blob] = []
         for lab in keep:
-            comp = (labels == lab).astype(np.uint8)
+            comp = _fill_holes((labels == lab).astype(np.uint8))
             contour = _subpixel_contour(comp)
             if contour is None:
                 continue
@@ -424,7 +426,7 @@ class SeamHandler:
                 Blob(
                     contour_px=contour,
                     mask_bbox_px=(int(bx0), int(by0), int(bx1), int(by1)),
-                    area_px=float(areas[lab - 1]),
+                    area_px=float(comp.sum()),
                     touches_edge=b.touches_edge
                     or bx0 <= roi.left
                     or by0 <= roi.top
@@ -520,6 +522,14 @@ class SeamHandler:
 
 def _with_seam(b: Blob) -> Blob:
     return Blob(b.contour_px, b.mask_bbox_px, b.area_px, b.touches_edge, on_seam=True)
+
+
+def _fill_holes(comp: np.ndarray) -> np.ndarray:
+    """Silhouette area: fill interior holes (a seam-subtracted hole inside the band, bores)."""
+    found, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    filled = np.zeros_like(comp)
+    cv2.drawContours(filled, found, -1, 1, -1)
+    return filled
 
 
 def _subpixel_contour(comp: np.ndarray) -> np.ndarray | None:
