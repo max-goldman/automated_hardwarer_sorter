@@ -92,15 +92,25 @@ class GuiConfig(_Section):
 
 class SegmentConfig(_Section):
     deviation_threshold: float = Field(0.12, gt=0)  # |flat - 1| above this is part (belt ~1.0)
-    edge_threshold: float = Field(0.06, gt=0)  # lower hysteresis threshold for sub-pixel edges
+    edge_threshold: float = Field(0.06, gt=0)  # sub-pixel edge level: |flat - 1| crossing used to
+    # place the contour between pixels (NOT a hysteresis seed; the seed is deviation_threshold)
+    edge_gradient_threshold: float = Field(0.08, gt=0)  # |grad flat| per px that marks a sharp edge
+    shadow_max_depth: float = Field(0.10, ge=0)  # soft dark regions shallower than this are shadow
+    gain_alpha: float = Field(0.05, gt=0, le=1)  # slow per-frame brightness-gain tracker rate
+    subpixel_smooth_px: float = Field(0.7, ge=0)  # gaussian sigma before sub-pixel refinement
     min_area_in2: float = Field(0.01, ge=0)  # smaller blobs are dust, square inches
     close_kernel_px: int = Field(3, ge=0)  # morphological close kernel size, px
 
 
 class SeamConfig(_Section):
     enabled: bool = True
-    angle_deg: float = 0.0  # nominal seam angle from vertical, degrees
-    width_in: float = Field(0.25, gt=0)  # nominal seam band width, inches
+    # Degrees measured from the travel axis (+x) toward +y (image y down), same as synthetic.py.
+    angle_deg: float = 50.0
+    width_in: float = Field(0.2, gt=0)  # nominal seam band width, inches (matches synthetic.py)
+    angle_tol_deg: float = Field(10.0, gt=0)  # accepted deviation from angle_deg
+    width_tol_in: float = Field(0.1, gt=0)  # accepted deviation from width_in
+    template_frames: int = Field(30, ge=1)  # frames averaged to learn the seam template
+    speed_window: int = Field(15, ge=2)  # seam sightings smoothed for the belt speed estimate
 
 
 class TrackConfig(_Section):
@@ -108,23 +118,39 @@ class TrackConfig(_Section):
     settle_frames: int = Field(3, ge=1)  # frames before a track counts as settled
     max_missed_frames: int = Field(3, ge=0)  # frames a track may go unseen before it finishes
     speed_tolerance: float = Field(0.15, ge=0)  # allowed fractional deviation from belt speed
+    max_area_change: float = Field(0.15, gt=0)  # fractional frame-to-frame area jump = unstable
+    min_frames: int = Field(5, ge=1)  # fewer valid frames sets TrackFlag.FEW_FRAMES
+
+
+class FeaturesConfig(_Section):
+    elongated_min_aspect: float = Field(1.8, gt=1)  # length/width above which bolt features exist
+    hole_bright_threshold: float = Field(1.05, gt=0)  # flat above this inside a part = bright hole
+    hole_dark_threshold: float = Field(0.85, gt=0)  # flat below this inside a part = dark bore
+    hole_min_diameter_in: float = Field(0.08, gt=0)  # smaller holes are noise
+    min_valid_frames: int = Field(3, ge=1)  # fewer valid observations cannot be fused
+    radial_samples: int = Field(180, ge=16)  # contour radial-profile samples (hex harmonic)
 
 
 class ClassifyConfig(_Section):
     confidence_threshold: float = Field(1.0, gt=0)  # worst-feature score at or below = fits
     out_of_scope_threshold: float = Field(1.5, gt=0)  # best score above this = out of scope
-    min_frames: int = Field(3, ge=1)  # fewer fused frames cannot be CONFIDENT
-    library_path: str = "config/parts_library.yaml"
+    min_frames: int = Field(5, ge=1)  # fewer fused frames cannot be CONFIDENT
+    library_path: str = "config/parts_library.yaml"  # resolved against the project root
+    derive_margin: float = Field(0.1, ge=0)  # fractional range padding when deriving ranges
 
 
 class SchedulerConfig(_Section):
     enabled: bool = True
     spin_ms: float = Field(4.0, ge=0)  # busy-wait window before a send time, milliseconds
+    screen_log_keep: int = Field(50, ge=1)  # last N sends kept for the GUI/screen log
 
 
 class PipelineConfig(_Section):
-    decision_log_dir: str = "decisions"
-    crop_dir: str = "crops"
+    decision_log_dir: str = "decisions"  # relative to the session folder
+    crop_dir: str = "crops"  # relative to the session folder
+    save_crops: bool = True
+    save_full_frames: bool = True  # full-frame reference per part, for grading
+    crop_pad_in: float = Field(0.15, ge=0)  # padding around a part crop, inches
 
 
 class SorterConfig(_Section):
@@ -141,6 +167,7 @@ class SorterConfig(_Section):
     segment: SegmentConfig = SegmentConfig()
     seam: SeamConfig = SeamConfig()
     track: TrackConfig = TrackConfig()
+    features: FeaturesConfig = FeaturesConfig()
     classify: ClassifyConfig = ClassifyConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     pipeline: PipelineConfig = PipelineConfig()

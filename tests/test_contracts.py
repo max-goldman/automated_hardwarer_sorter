@@ -1,13 +1,20 @@
 import dataclasses
 import json
+import subprocess
+import sys
 
 import numpy as np
 import pytest
 from fakes import (
     make_blob,
     make_classification,
+    make_feature_vector,
     make_fused,
+    make_group_decision,
+    make_observation,
     make_part_result,
+    make_prepared,
+    make_scheduled_output,
     make_track,
 )
 from pydantic import ValidationError
@@ -15,6 +22,8 @@ from pydantic import ValidationError
 from hwsorter.calibration.store import RoiCalibration
 from hwsorter.config import load_config
 from hwsorter.contracts import (
+    DETERMINISM_IGNORE_KEYS,
+    DETERMINISM_IGNORE_KINDS,
     Classifier,
     FeatureVector,
     GroupDecision,
@@ -29,6 +38,8 @@ from hwsorter.contracts import (
     SendRecord,
     TrackFlag,
     Verdict,
+    flag_names,
+    to_log_dict,
 )
 from hwsorter.synthetic import PART_KINDS
 
@@ -109,3 +120,48 @@ def test_unknown_keys_rejected(tmp_path):
     bad.write_text("[track]\nbogus = 1\n")
     with pytest.raises(ValidationError):
         load_config(bad)
+
+
+def test_import_contracts_is_light():
+    code = (
+        "import sys, hwsorter.contracts; "
+        "bad = [m for m in ('cv2', 'PySide6') if m in sys.modules]; "
+        "sys.exit(1 if bad else 0)"
+    )
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
+
+
+def test_to_log_dict_non_finite_and_enums():
+    rec = to_log_dict(make_classification(Verdict.UNRESOLVED, runner_up_score=float("inf")))
+    assert rec["runner_up_score"] is None and rec["verdict"] == "unresolved"
+    out = to_log_dict(
+        {
+            "a": np.float32(1.5),
+            "b": np.array([1.0, np.nan]),
+            "c": TrackFlag.MERGED | TrackFlag.ON_SEAM,
+        }
+    )
+    assert out == {"a": 1.5, "b": [1.0, None], "c": ["ON_SEAM", "MERGED"]}
+    text = json.dumps(to_log_dict(make_part_result()), allow_nan=False)
+    assert "NaN" not in text and "Infinity" not in text
+    assert flag_names(TrackFlag(0)) == []
+    assert {"t_ns", "timings"} <= DETERMINISM_IGNORE_KEYS
+    assert "log_open" in DETERMINISM_IGNORE_KINDS
+
+
+def test_fakes_overrides_and_consistency():
+    f = make_fused(area_in2=0.5)
+    c = make_classification(Verdict.OUT_OF_SCOPE)
+    r = make_part_result(fused=f, classification=c)
+    assert r.fused is f and r.classification is c
+    assert c.score > 1.5
+    assert make_prepared().flat.dtype == np.float32
+    assert make_observation().valid and make_feature_vector().valid
+    assert make_group_decision().member_track_ids == (1,)
+    assert make_scheduled_output().output is Output.BOLT_025
+
+
+def test_seam_defaults_match_synthetic():
+    cfg = load_config()
+    assert cfg.seam.angle_deg == 50.0 and cfg.seam.width_in == 0.2
+    assert cfg.features.min_valid_frames >= 1

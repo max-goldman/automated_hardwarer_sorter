@@ -15,13 +15,16 @@ Conventions (invariants)
 
 from __future__ import annotations
 
+import dataclasses
+import math
 from dataclasses import dataclass, field
 from enum import Enum, Flag, auto
-from typing import Any, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 
 import numpy as np
 
-from .calibration.store import RoiCalibration
+if TYPE_CHECKING:  # type-only: calibration.store pulls in cv2, which contracts must not import
+    from .calibration.store import RoiCalibration
 
 DECISION_LOG_SCHEMA_VERSION = 1
 
@@ -70,6 +73,11 @@ class TrackFlag(Flag):
     FEW_FRAMES = auto()
 
 
+def flag_names(flags: TrackFlag) -> list[str]:
+    """Names of the set flags in TrackFlag definition order (the decision-log ``flags`` form)."""
+    return [f.name for f in TrackFlag if f.name and f in flags]
+
+
 class MissReason(str, Enum):  # noqa: UP042
     NONE = "none"
     LATE_DECISION = "late_decision"
@@ -105,7 +113,9 @@ class Blob:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SeamObs:
-    """Belt seam observation. ``band_px`` is the (4, 2) px corner polygon of the seam band."""
+    """Belt seam observation. ``band_px`` is the (4, 2) px corner polygon of the seam band.
+    ``angle_deg`` is measured in degrees from the travel axis (+x) toward +y (image y down),
+    the same convention as synthetic.py and ``seam.angle_deg`` in config (default 50)."""
 
     present: bool
     x_center_px: float
@@ -194,8 +204,24 @@ class PartResult:
     crop_ref: str | None = None
 
 
+RULES = (
+    "lone_confident",  # single part, confident class
+    "lone_misc",  # single part, out of scope or unresolved
+    "group_same_class",  # several parts, all the same confident class
+    "group_all_oos",  # several parts, all out of scope
+    "rework",  # anything else in a group (mixed, unresolved, merged): send to rework
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GroupDecision:
+    """Output decision for one closed group of tracks (decide -> schedule).
+
+    ``t_ref_ns`` and ``x_lead_in_at_ref`` come from the most downstream member (the one with
+    the max ``belt_x_lead_in``): ``x_lead_in_at_ref`` is that member's lead edge in belt-plane
+    inches (NOT belt-frame) at ``t_ref_ns`` (latency-corrected). ``t_closed_ns`` is when the
+    group was closed, in the Clock domain. ``rule`` is one of ``RULES``."""
+
     group_id: int
     member_track_ids: tuple[int, ...]
     output: Output
@@ -207,6 +233,9 @@ class GroupDecision:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledOutput:
+    """A group decision with its send time. ``t_send_ns`` is the target send time in the Clock
+    domain (when the part reaches the collector gate minus actuator lead)."""
+
     group_id: int
     output: Output
     member_track_ids: tuple[int, ...]
@@ -215,6 +244,10 @@ class ScheduledOutput:
 
 @dataclass(frozen=True, slots=True)
 class SendRecord:
+    """Result of a send. ``t_actual_ns`` (Clock domain) is when the adapter was actually called;
+    on a late send it is after ``scheduled.t_send_ns`` and ``miss`` says why (LATE_DECISION when
+    the decision arrived after the send time, so it was sent immediately)."""
+
     scheduled: ScheduledOutput
     t_actual_ns: int
     miss: MissReason = MissReason.NONE
@@ -238,33 +271,77 @@ class OutputAdapter(Protocol):
 
 
 # --------------------------------------------------------------------------- decision log
-# Records go through EventLog.log(kind, **fields), which adds "t_ns" (wall-monotonic, excluded
-# from determinism checks) and "kind". Enums serialise as their string values, TrackFlag as a
-# list of flag names, times as int ns. Determinism: everything except "timings" must be
-# byte-identical for the same recording.
+# Records go through EventLog.log(kind, **fields), which adds "t_ns" (monotonic wall time) and
+# "kind". Serialise with ``to_log_dict``:
+#   * enums -> .value, TrackFlag -> flag_names() list, dataclasses -> dicts, times -> int ns;
+#   * numpy scalars -> Python numbers, arrays -> lists;
+#   * NaN and +-inf are written as JSON null (never NaN/Infinity); readers treat null as NaN
+#     (``Classification.runner_up_score`` inf therefore reads back as NaN: use ``is None or nan``).
+# Determinism (invariant 10): replaying a recording must give identical records once these
+# are removed: top-level ``t_ns`` and every key in DETERMINISM_IGNORE_KEYS (at any depth), and
+# records of kind in DETERMINISM_IGNORE_KINDS ("log_open" carries wall_time). In session_start,
+# ``session`` and ``source`` are names/paths and are also ignored (listed in the key set).
+# Group membership comes only from GroupRecord.member_track_ids.
+
+DETERMINISM_IGNORE_KEYS = frozenset(
+    {"t_ns", "timings", "wall_time", "session", "source", "t_start_ns", "t_end_ns", "duration_ns"}
+)
+DETERMINISM_IGNORE_KINDS = frozenset({"log_open"})
+
+
+def to_log_dict(obj: Any) -> Any:
+    """Convert a dataclass/dict/list/enum/numpy value to plain JSON-safe data (see above)."""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: to_log_dict(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+    if isinstance(obj, TrackFlag):
+        return flag_names(obj)
+    if isinstance(obj, Enum):
+        return to_log_dict(obj.value)
+    if isinstance(obj, np.ndarray):
+        return to_log_dict(obj.tolist())
+    if isinstance(obj, np.generic):
+        return to_log_dict(obj.item())
+    if isinstance(obj, dict):
+        return {str(k): to_log_dict(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [to_log_dict(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    return obj
+
+
+# ``timings`` minimum keys. part: {"stages_ms": {stage: ms}, "latency_ms": float} where
+# latency_ms is the last used frame's t_capture to the group decision. group/send: {"latency_ms"}.
+# session_end: {"stages_ms": {stage: {"mean": ms, "p95": ms, "max": ms}}}.
 
 
 class PartRecord(TypedDict):
-    """kind="part": one finished track."""
+    """kind="part": one finished track. Floats may be None (non-finite, see above)."""
 
     schema_version: int
     track_id: int
     verdict: str
     part_class: str | None
     pose: str | None
-    score: float
+    score: float | None
     runner_up_score: float | None
     worst_feature: str | None
-    flags: list[str]
+    flags: list[str]  # names in TrackFlag definition order
     n_frames: int
     on_seam: bool
     median: dict[str, float | None]
     spread: dict[str, float | None]
     belt_x_lead_in: float
     belt_x_trail_in: float
+    y_min_in: float  # belt-plane y extent (rematching side-by-side parts)
+    y_max_in: float
+    t_first_ns: int  # first / last frame used (t_last_ns starts the latency metric)
+    t_last_ns: int
     t_ref_ns: int
     x_lead_in_at_ref: float
-    crop_ref: str | None
+    crop_ref: str | None  # session-relative path of the crop
+    frame_ref: str | None  # session-relative path of the full frame
+    ref_seq: int | None  # Frame.seq of the full frame
     timings: dict[str, Any]
 
 
@@ -275,7 +352,7 @@ class GroupRecord(TypedDict):
     group_id: int
     member_track_ids: list[int]
     output: str
-    rule: str
+    rule: str  # one of RULES
     t_ref_ns: int
     x_lead_in_at_ref: float
     t_closed_ns: int
@@ -303,6 +380,10 @@ class SessionStartRecord(TypedDict):
     t_start_ns: int  # t0 of the belt frame
     belt_speed_in_s: float
     rework_gap_in: float
+    exit_x_in: float  # belt-plane x of the collector gate
+    px_per_in: float  # calibration actually used
+    measured_speed_in_s: float | None
+    machine: str
     source: str
     config: dict[str, Any]
 
@@ -312,7 +393,9 @@ class SessionEndRecord(TypedDict):
 
     schema_version: int
     t_end_ns: int
+    duration_ns: int
     n_frames: int
+    n_dropped: int
     n_parts: int
     n_groups: int
     n_sends: int
