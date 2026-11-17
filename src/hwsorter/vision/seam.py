@@ -75,7 +75,6 @@ class _Geom:
     den_bot: np.ndarray
     valid: np.ndarray  # bool (ncols,)
     roi_mask: np.ndarray  # uint8 (H, W), 1 inside the ROI
-    edge_rows: int  # downsampled rows left out at the ROI top and bottom (belt edges)
 
 
 @dataclass(slots=True)
@@ -220,16 +219,11 @@ class SeamHandler:
     def _geometry(self, p: Prepared) -> _Geom:
         h_img, w_img = p.flat.shape
         roi = p.roi
-        key = (h_img, w_img, roi.top, roi.bottom, roi.left, roi.right, self._ppi)
+        key = (h_img, w_img, roi.top, roi.bottom, roi.left, roi.right)
         if self._geom is not None and self._geom.key == key:
             return self._geom
         ds, cot = _DS, self._cot
         r = (roi.bottom - roi.top) // ds
-        # Rows at the very top/bottom of the ROI are the belt's edges: a curved edge, or one that
-        # shifted a pixel since the flat-field, images as a thin, very dark strip that a seam
-        # column clipped by the image corner would average into a false dip. A real seam spans
-        # the belt, so leaving these rows out costs nothing.
-        edge = min(round(self._cfg.edge_margin_in * (self._ppi or _DEFAULT_PX_PER_IN) / ds), r // 4)
         # seam centre positions s (x at y = H/2) for which the line meets the ROI
         s_min = roi.left - (roi.bottom - 1 - h_img / 2) * cot
         s_max = roi.right - 1 - (roi.top - h_img / 2) * cot
@@ -240,8 +234,6 @@ class SeamHandler:
             [[1.0, cot, sm0 + (off + roi.top - h_img / 2) * cot / ds], [0.0, 1.0, 0.0]], np.float32
         )
         ones = np.ones((r, (roi.right - roi.left) // ds), np.float32)
-        ones[:edge] = 0.0
-        ones[r - edge :] = 0.0
         den = self._warp(ones, m, ncols, r)
         den_col = den.sum(axis=0)
         valid = den_col >= _MIN_COVERAGE * max(float(den_col.max()), 1e-6)
@@ -259,7 +251,6 @@ class SeamHandler:
             den[r // 2 :].sum(axis=0),
             valid,
             roi_mask,
-            edge,
         )
         return self._geom
 
@@ -289,10 +280,6 @@ class SeamHandler:
             interpolation=cv2.INTER_AREA,
         )
         dip = np.clip(1.0 - small, -0.02, _DIP_CLIP)
-        e = g.edge_rows
-        if e:
-            dip[:e] = 0.0
-            dip[g.r - e :] = 0.0
         den, den_col, den_top, den_bot, valid = g.den, g.den_col, g.den_top, g.den_bot, g.valid
         if exclude:
             wgt = np.ones(small.shape, np.uint8)
@@ -300,9 +287,6 @@ class SeamHandler:
                 pts = np.round((b.contour_px - [roi.left, roi.top]) / _DS * 8).astype(np.int32)
                 cv2.fillPoly(wgt, [pts], 0, shift=3)
             wgt = cv2.erode(wgt, np.ones((5, 5), np.uint8))  # grow the excluded area 2 px
-            if e:
-                wgt[:e] = 0
-                wgt[g.r - e :] = 0
             wf = wgt.astype(np.float32)
             both = self._warp(np.dstack([dip * wf, wf]), g.m, g.ncols, g.r)
             num_img, den = both[..., 0], both[..., 1]
@@ -475,7 +459,10 @@ class SeamHandler:
         if n <= 1:
             return []
         areas = stats[1:, cv2.CC_STAT_AREA].astype(np.float64)
-        keep = [i + 1 for i in range(n - 1) if areas[i] >= max(0.2 * areas.max(), 30.0)]
+        # A piece smaller than the smallest part the segmenter keeps is seam residue (a lone
+        # stitch the template did not explain), never a part.
+        min_px = self._cfg.min_piece_in2 * (self._ppi or _DEFAULT_PX_PER_IN) ** 2
+        keep = [i + 1 for i in range(n - 1) if areas[i] >= max(0.2 * areas.max(), 30.0, min_px)]
         out: list[Blob] = []
         for lab in keep:
             comp = _fill_holes((labels == lab).astype(np.uint8))

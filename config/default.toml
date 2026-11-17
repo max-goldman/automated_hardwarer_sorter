@@ -91,7 +91,7 @@ angle_tol_deg = 10.0        # accepted deviation from angle_deg
 width_tol_in = 0.1          # accepted deviation from width_in
 template_frames = 30        # frames averaged to learn the seam template
 speed_window = 15           # seam sightings smoothed for the belt speed estimate
-edge_margin_in = 0.06       # rows this close to the ROI top/bottom (belt edges) are ignored by detection
+min_piece_in2 = 0.01        # a repaired piece smaller than this (= segment.min_area_in2) is seam residue
 
 [track]
 gate_in = 0.5               # max belt-frame distance to link a blob to a track (inches)
