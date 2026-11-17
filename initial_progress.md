@@ -1,13 +1,14 @@
-# Hardware Sorter Vision Program: Initial Progress
+# Hardware Sorter Vision Program: Progress
 
-Written 2026-11-16 at the end of the first working session. Nothing has been committed to git; every file below is new and untracked.
+Session 1 (2026-11-16) planned the project and built Milestones 0 and 1; its notes start at "Milestone 0 results" below. Session 2 (2026-11-16 to 17) ran as a multi-agent build: an Opus orchestrator with Sonnet workers, Sonnet or Opus reviewers, and Fable or Opus advisors. It ended when the account hit its 5-hour usage limit, with several agents stopped mid-task. To pick up the work, see `continuation_prompt.md` and the local board in `.agent-board/`.
 
-## Where things stand
+## Where things stand (end of session 2, 2026-11-17)
 
-- **Planning:** done. The architecture and milestone plan was approved and is reproduced in full at the end of this file.
-- **Milestone 0 (camera spike):** done on the Mac, with two hardware findings that need action (flickering lights, low light level).
-- **Milestone 1 (capture, record/replay, live view, calibration):** the software is written and its 34 automated tests pass. It has not yet been used on the rig with a printed target or a moving belt, and the README is still a stub.
-- **Milestones 2 and 3:** not started.
+- **Git:** all work is on branch `develop`. `main` holds only the brief and photos. Each task has its own branch `task/NNN-slug`, merged into `develop` with `--no-ff` after review.
+- **Milestone 0 (camera spike):** done.
+- **Milestone 1:** the software is done. The README and the `sorter calibrate flatfield` command were added in session 2. It has not yet been used at the rig with a printed target or a moving belt (checkpoint 1).
+- **Milestone 2 and 3 software:** in progress. Of the shared pieces, tracking and grouping/decisions are merged; segmentation and features are written but not reviewed; seam handling and the classifier are partial; the scheduler needs one test fix. Pipeline wiring, grading, report, GUI overlay, bench and docs have not started. Details are in "Session 2" below.
+- **Tests on `develop`:** 89 pass. `ruff check` and `ruff format --check` are clean.
 
 ## Decisions made with the user
 
@@ -15,12 +16,13 @@ Written 2026-11-16 at the end of the first working session. Nothing has been com
 | --- | --- |
 | Deployment OS | Linux on the Dell (a Raspberry Pi is a possible later target) |
 | GUI | Qt desktop app (PySide6) |
-| Lighting | May be adjusted if recordings show a problem |
+| Lighting | May be adjusted if recordings show a problem. **Session 2:** ignore flicker for now; the lighting will be fixed in hardware later, and the software assumes steady lighting |
 | Belt | One stitched diagonal seam; belt about 52 in long, so the seam passes about every 13 s |
 | Runway | About 12 in from the camera view to the collector |
 | Belt motion | Stationary for now; can run on request |
 | Out-of-scope test items | Undecided, so tolerances are designed for near-miss sizes |
-| Checkpoints | Stop after each milestone for a hardware checklist (my default; not explicitly confirmed) |
+| Checkpoints | Stop after each milestone for a hardware checklist (my default; not explicitly confirmed). In session 2 the user said to keep going on software, so M2/M3 are being built against synthetic scenes before checkpoint 1 |
+| Agents | Session 2: an Opus orchestrator; Fable or Opus advisors are allowed as needed |
 
 ## Milestone 0 results (measured on the Mac)
 
@@ -78,7 +80,7 @@ All code is under `src/hwsorter/` (about 3,300 lines) with tests under `tests/` 
 - Against the real camera: `sorter camera-info` reports 120.6 fps with no unexplained missing frames, and a 4 s recording read back bit-exact and replayed at about 800 fps.
 - The GUI was run off-screen on both the camera and synthetic sources; it has not been opened in a real window or used by a person.
 
-## Last task in progress
+## Last task in progress (session 1)
 
 I had just fixed two problems found by running the app off-screen:
 
@@ -87,12 +89,12 @@ I had just fixed two problems found by running the app off-screen:
 
 Both are in place and tested. The next step was to finish milestone 1.
 
-## Remaining work
+## Remaining work (as of session 1; for current status see "Loose ends at termination" under Session 2)
 
 **To finish milestone 1**
 
-- Write the README: setup on macOS, Linux and Windows, and how to run each tool.
-- Add a command to build the flat-field from an empty-belt recording (the function exists; the command does not).
+- ~~Write the README~~ (done in session 2, task 003).
+- ~~Add a flat-field command~~ (done in session 2: `sorter calibrate flatfield <recording>`).
 - Open the GUI in a real window on the Mac and try each panel by hand.
 - Checkpoint 1 at the rig:
   - Add light. (Flicker deferred by the user on 2026-11-17: the lighting will be fixed later; software assumes steady lighting.)
@@ -106,6 +108,76 @@ Both are in place and tested. The next step was to finish milestone 1.
 **Milestone 3:** parts library, classifier, grouping and decision rules, scheduler with on-screen output, report, benchmark, regression tests, design note.
 
 **Later:** serial protocol and timing calibration (milestone 4); Linux camera backend and acceptance on the Dell (milestone 5).
+
+---
+
+# Session 2 (2026-11-16 to 17): multi-agent build
+
+## Process
+- The orchestrator coordinates through a local board, `.agent-board/` (gitignored, so it exists only on this Mac). The board holds `board.md` (commands, rules, decisions, task status), `contracts-spec.md`, `budget-proposal.md`, `inbox.md` and `tasks/NNN-slug.md` (one per task, with its spec, verification output and review notes).
+- Each worker runs in its own git worktree (`.claude/worktrees/`, gitignored) on its own branch `task/NNN-slug`. A fresh reviewer re-runs every command before the orchestrator merges into `develop`.
+- Verification commands:
+  - `uv run pytest`
+  - `uvx ruff@0.17.5 check src tests`
+  - `uvx ruff@0.17.5 format --check src tests`
+  - `uv run sorter --help`
+
+## Completed and merged into `develop`
+| Task | Result |
+| --- | --- |
+| Baseline | The uncommitted M1 work committed as `3591145` on the new `develop` branch |
+| 001 lint | Ruff 0.17.5 config pinned in `pyproject.toml`; 57 existing findings fixed with no behavior change; format applied |
+| 002 contracts | `src/hwsorter/contracts.py` holds the frozen shared types (enums, frozen dataclasses, Protocols, decision-log TypedDicts, `to_log_dict`, determinism helpers). Also: config sections segment/seam/track/features/classify/scheduler/pipeline and `tests/fakes.py` builders. Took 3 review rounds |
+| 003 M1 finish | README written; `sorter calibrate flatfield <recording>`; short recording names resolve (`empty-belt` finds the newest `<timestamp>-empty-belt`) |
+| 006 track | `vision/track.py`: belt-frame Tracker with gating, valid observations, MERGED/UNSETTLED/FEW_FRAMES/TOUCHES_EDGE flags, `entry_belt_x_in` |
+| 009 decide | `decide/rules.py`: Grouper (along-x gap, transitive links, closure), `decide()` matching the brief's table exactly, `correct_output()` for grading |
+| Docs | Steady-lighting decision recorded here |
+
+## Key decisions (all in `.agent-board/board.md`)
+- **Contracts:** frozen in `contracts.py`. Workers may change default values in their own config section, but must not add keys.
+- **Coordinates and time:**
+  - Pixels are full-image, x right; parts travel +x.
+  - All times are integer ns on the injected Clock.
+  - `Frame.t_capture_ns` is the raw driver time, and only the pipeline subtracts camera latency.
+  - Pixel-to-inch conversion goes only through `PlaneMapper`.
+  - `belt_x = x_in - v*(t - t0)`.
+- **Groups:** a group's reference time and position come from its most downstream member. The Scheduler writes the single "send" log record. Non-finite floats are logged as `null`.
+- **Determinism:** the same recording gives the same decision log, ignoring timings and `t_actual_ns`, comparing per record kind.
+- **Seam angle:** measured in degrees from the travel axis.
+- **Lighting:** assume steady (user decision).
+
+## Measurements this session
+- **Camera (2026-11-17):**
+  - 120.6 fps, 0 unexplained drops.
+  - Belt reads 125/255 at 1.0 ms exposure.
+  - Flicker is still present (52% of frames dimmed), but deferred by the user.
+- **Real recording** `recordings/20261117-002046-still-belt-1ms` (366 frames, gitignored): a stationary belt with ONE BOLT lying in view (x about 180-690 px), not an empty belt. On the steady frames, segmentation finds exactly that bolt. An identity flat-field makes the whole ROI one blob, so a real flat-field is required before live runs.
+- **Performance on the M5, too slow:**
+  - Segmentation takes 12-13 ms per frame.
+  - Feature extraction takes 1.7-4.5 ms per part per frame.
+  - The Dell budget is 8.3 ms per frame for the whole pipeline.
+  - An Opus advisor proposed a plan, saved in `.agent-board/budget-proposal.md`: process every 2nd frame, extract features on at most 10 frames per track, and use two-stage segmentation. The new config keys await sign-off; the session-2 orchestrator recommends adopting it.
+- **Features on synthetic parts:** size features are within 0.004 in of nominal. The 1/4 washer and the 3/8 nut separate cleanly by hole type, hex harmonic and circularity.
+- **Scheduler jitter on the Mac:** p99 under 0.5 ms in most runs; one run had a 9.65 ms max outlier.
+
+## Loose ends at termination
+1. **004 segmentation:** on branch `task/004-segment` (060a71c), still unreviewed because its Opus reviewer hit the usage limit. It needs a fresh review and the budget-proposal speedups.
+2. **007 features and fusion:** on branch `task/007-features-fusion` (f5b9eb6), also unreviewed. It needs a fresh review that includes profiling.
+3. **010 scheduler:** on branch `task/010-schedule-output` (a7ccaf6). Review round 1 asked for one change: make the real-clock jitter test opt-in. Then review round 2.
+4. **005 seam handling:** on branch `task/005-seam` (5b62bf9), partial and UNVERIFIED. It has `vision/seam.py` only, no tests.
+5. **008 classifier:** on branch `task/008-classify` (79daf97), partial and UNVERIFIED. It has the library, range classifier, `config/parts_library.yaml` and tests, and adds pyyaml.
+6. **Budget proposal:** needs sign-off, then a small task to add the 6 config keys before the 004 rework and 011.
+7. **Tasks 011-016 not started:** pipeline runner and decision log; grading tool; report; GUI debug overlay; bench and replay regression; design note and `derive-ranges`. Specs are in `.agent-board/tasks/`.
+8. **Carried notes for 011:**
+   - Tracker needs a public `t0_ns`.
+   - Call `Grouper.advance` with a frontier that accounts for live tracks.
+   - `segment()` takes an extra optional `mapper` argument and must receive it, otherwise min-area falls back to 8 px.
+   - Parts that enter the view already fused form one track; consider flagging a split by area drop.
+9. **Stale worktrees** remain under `.claude/worktrees/` for the open branches. Remove them as branches merge.
+10. **Hardware, waiting on the user** (see `.agent-board/inbox.md`):
+    - more light;
+    - checkpoint 1 at the rig (print the target, calibrate, record empty-belt laps for the flat-field, record 30-part runs);
+    - a rough collector lead time.
 
 ---
 
