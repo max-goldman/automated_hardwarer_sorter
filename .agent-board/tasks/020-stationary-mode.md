@@ -1,6 +1,6 @@
 # 020 stationary-belt mode for `sorter run`
 
-Status: IN_PROGRESS
+Status: IN_PROGRESS (review round 2)
 Dependencies: none (M2/M3 merged)
 Branch: `task/020-stationary-mode` (from `develop`)
 Reviewer: Opus (tracker/pipeline/decision semantics).
@@ -28,7 +28,10 @@ Synthetic still scenes: (1) six classes placed one at a time with pauses -> each
 NOTE: 5 tests in tests/replay/test_golden.py fail on this Mac (cross-machine float drift; task 021 fixes them). Those 5 are expected; nothing else may fail. Do not regenerate goldens.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Round 1 worker (Sonnet), commit f439a3f: pytest 5 failed (known golden drift, fixed by 021) / 310 passed; ruff exit=0; format exit=0; `run --synthetic --headless --fast --stationary` exit=0 (10 groups, 9 parts, 0 sends; pair -> rework then re-decided after removal). Moving-mode logs identical to develop on a synthetic run.
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Opus): CHANGES REQUIRED. Merge with develop: README conflict only (keep both option lines). Merged tree: pytest exit=0, ruff exit=0, format exit=0.
+Required: (1) swap-before-measure contamination: track.py:345-358 reappear/IoU check only after lock; an unmeasured track that reappears after > _REAPPEAR_S or a hold must finish or reset its vectors; add a hand-swap-before-measure test. (2) superseded decisions double-counted by grade (grade.py:97) and report (metrics.py:279); session_log.group_of returns the stale group: mark supersession and use the latest group per part; test with pair-then-removal.
+Orchestrator also requires: post-hand settle period before deciding; config cross-checks (move_tol_in < relocate_in < track.gate_in, give_up_s >= settle_s, missed_s > 0); fix the 0.35 vs 0.6 in^2 comment mismatch.
+Accepted deviation: touching parts form one blob decided as one part (MISC/UNRESOLVED, safe) — same open question as the moving-mode stacked-parts gap (board, session 4).
