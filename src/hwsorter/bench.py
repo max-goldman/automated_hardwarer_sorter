@@ -96,7 +96,53 @@ def canonical_text(records: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _diff_value(a: Any, b: Any, path: str, out: list[str], limit: int) -> None:
+# Cross-machine tolerances. The same recording replayed on another CPU/libm/SIMD build gives the
+# same decisions but floats that differ around 1e-5 (largest seen 2.1e-5), so floats compare
+# with |a-b| <= abs_tol + rel_tol*|b|.
+FLOAT_ABS_TOL = 1e-4
+FLOAT_REL_TOL = 1e-4
+# Integer ns times derived from floats (latency-corrected / scheduled) may move by this much.
+NS_TOL = 1000
+DERIVED_NS_KEYS = frozenset({"t_send_ns", "t_ref_ns", "t_closed_ns"})
+
+
+@dataclass(frozen=True)
+class CompareTol:
+    """Compare rules for ``diff_decisions`` (``STRICT`` = exact equality everywhere).
+
+    Per value, in the determinism view (timings, host name etc. already dropped):
+    * bool, str, None, and every int NOT listed below (record counts, ids, ref_seq, n_frames,
+      on_seam, flags, member ids, miss reasons, t_first_ns/t_last_ns taken from the recording,
+      schema_version): EXACT.
+    * float (feature medians/spreads, scores, inch positions), or an int compared with a float:
+      |a-b| <= abs_tol + rel_tol*|b|; NaN equals NaN (null equals null via the exact rule).
+    * int under key t_send_ns / t_ref_ns / t_closed_ns (derived from floats): within ns_tol ns.
+    * dict keys, list lengths, types otherwise: EXACT."""
+
+    abs_tol: float = FLOAT_ABS_TOL
+    rel_tol: float = FLOAT_REL_TOL
+    ns_tol: int = NS_TOL
+    strict: bool = False
+
+
+STRICT = CompareTol(0.0, 0.0, 0, strict=True)
+
+
+def _isnum(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _diff_value(
+    a: Any,
+    b: Any,
+    path: str,
+    out: list[str],
+    limit: int,
+    tol: CompareTol = STRICT,
+    dev: list[float] | None = None,
+) -> None:
+    """Append mismatches of ``a`` (expected) vs ``b`` (actual) to ``out``; ``dev[0]`` tracks the
+    largest tolerated float deviation seen (for reporting)."""
     if len(out) >= limit:
         return
     if isinstance(a, dict) and isinstance(b, dict):
@@ -106,19 +152,44 @@ def _diff_value(a: Any, b: Any, path: str, out: list[str], limit: int) -> None:
             elif k not in b:
                 out.append(f"{path}.{k}: expected {a[k]!r}, missing in actual")
             else:
-                _diff_value(a[k], b[k], f"{path}.{k}", out, limit)
+                _diff_value(a[k], b[k], f"{path}.{k}", out, limit, tol, dev)
     elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
         for i, (x, y) in enumerate(zip(a, b, strict=True)):
-            _diff_value(x, y, f"{path}[{i}]", out, limit)
-    elif a != b:
-        out.append(f"{path}: expected {a!r}, got {b!r}")
+            _diff_value(x, y, f"{path}[{i}]", out, limit, tol, dev)
+    elif tol.strict or not (_isnum(a) and _isnum(b)):
+        if a != b:
+            out.append(f"{path}: expected {a!r}, got {b!r}")
+    elif isinstance(a, int) and isinstance(b, int):
+        key = path.rsplit(".", 1)[-1]
+        if key in DERIVED_NS_KEYS:
+            d = abs(a - b)
+            if d > tol.ns_tol:
+                out.append(f"{path}: expected {a!r}, got {b!r} (off by {d} ns)")
+        elif a != b:
+            out.append(f"{path}: expected {a!r}, got {b!r}")
+    else:
+        fa, fb = float(a), float(b)
+        if fa != fa and fb != fb:  # both NaN
+            return
+        d = abs(fa - fb)
+        if d <= tol.abs_tol + tol.rel_tol * abs(fb):
+            if dev is not None and d == d:
+                dev[0] = max(dev[0], d)
+        else:
+            out.append(f"{path}: expected {a!r}, got {b!r} (|diff|={d:.3g})")
 
 
 def diff_decisions(
-    expected: list[dict[str, Any]], actual: list[dict[str, Any]], limit: int = 25
+    expected: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+    limit: int = 25,
+    tol: CompareTol = STRICT,
+    dev: list[float] | None = None,
 ) -> list[str]:
-    """Human-readable mismatches between two decision logs (empty list = identical decisions),
-    ignoring timings and the other determinism-ignored keys. Compared per record kind."""
+    """Human-readable mismatches between two decision logs (empty list = same decisions),
+    ignoring timings and the other determinism-ignored keys. Compared per record kind.
+    Default is exact; pass ``CompareTol()`` for the cross-machine tolerant compare (see there),
+    and a one-element list as ``dev`` to receive the largest tolerated float deviation."""
     ea, aa = decision_view(expected), decision_view(actual)
     out: list[str] = []
     for kind in sorted(set(ea) | set(aa)):
@@ -126,7 +197,7 @@ def diff_decisions(
         if len(ra) != len(rb):
             out.append(f"{kind}: expected {len(ra)} records, got {len(rb)}")
         for i, (x, y) in enumerate(zip(ra, rb, strict=False)):
-            _diff_value(x, y, f"{kind}[{i}]", out, limit)
+            _diff_value(x, y, f"{kind}[{i}]", out, limit, tol, dev)
     return out[:limit]
 
 
@@ -672,12 +743,20 @@ def cmd_replay_compare(args: Any, cfg: SorterConfig, spec: str) -> int:
             print("error: --decision-log must differ from the --compare log", file=sys.stderr)
             return 2
         _, actual, _ = replay_decisions(cfg, spec, out)
-    problems = diff_decisions(expected, actual)
+    strict = bool(getattr(args, "strict", False))
+    ftol = getattr(args, "float_tol", FLOAT_ABS_TOL)
+    tol = STRICT if strict else CompareTol(abs_tol=ftol, rel_tol=ftol)
+    dev = [0.0]
+    problems = diff_decisions(expected, actual, tol=tol, dev=dev)
     n = {k: len(v) for k, v in decision_view(actual).items()}
     if problems:
         print(f"MISMATCH: decisions differ from {expected_path} ({len(problems)} shown)")
         for line in problems:
             print(f"  {line}")
         return 1
-    print(f"MATCH: decisions identical to {expected_path} (timings ignored; records: {n})")
+    mode = "strict" if strict else f"float tol {ftol:g}"
+    print(
+        f"MATCH: decisions match {expected_path} (timings ignored; {mode}; "
+        f"max float deviation {dev[0]:.3g}; records: {n})"
+    )
     return 0

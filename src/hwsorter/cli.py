@@ -571,6 +571,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the pipeline and diff its decisions against this log (timings ignored); "
         "exit 1 on any mismatch (the Mac-vs-Dell check)",
     )
+    p.add_argument(
+        "--float-tol",
+        type=float,
+        default=1e-4,
+        help="--compare: absolute and relative float tolerance (default 1e-4; cross-CPU noise ~1e-5)",
+    )
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help="--compare: require exact equality, floats included (same-machine check)",
+    )
     p.set_defaults(func=_cmd_replay)
 
     p = sub.add_parser(

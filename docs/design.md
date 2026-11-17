@@ -157,7 +157,7 @@ Parts are in view for 60 to 85 frames but about 10 are enough. Adopted settings
   on a real seam, where the stitch appearance may differ.
 - **Bench numbers need the Dell.** The timing figures from `sorter bench` on this Linux box
   (2 cores, shared) say nothing about the 250 ms target on the Dell target laptop; acceptance
-  numbers must be measured there. `sorter replay --compare` is the Mac-vs-Dell consistency check.
+  numbers must be measured there. `sorter replay --compare` is the Mac-vs-Dell consistency check (decisions exact, floats within 1e-4 abs/rel and derived ns times within 1 us, since cross-CPU noise is ~1e-5; `--strict` for exact).
 - **Steady lighting is assumed.** Lighting flicker is to be fixed in hardware; the pipeline has
   no flicker rejection (only a slow gain tracker for gradual drift). Recordings made before that
   fix must be judged on undimmed frames.
