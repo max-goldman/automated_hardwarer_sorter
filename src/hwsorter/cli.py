@@ -10,7 +10,7 @@ import time
 
 import numpy as np
 
-from .config import load_config, machine_name
+from .config import load_config, machine_name, with_stationary
 
 
 def resolve_recording(cfg, spec: str):
@@ -245,6 +245,8 @@ def _run_pipeline(
 
 def _cmd_run(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
+    if args.stationary:
+        cfg = with_stationary(cfg)
     spec = args.source
     if spec not in ("camera", "synthetic"):
         spec = str(resolve_recording(cfg, spec))
@@ -598,6 +600,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seconds", type=float, help="stop after this long (synthetic scene length)")
     p.add_argument("--parts", type=_min_one, help="synthetic: number of parts (default 10)")
     p.add_argument("--decision-log", help="decision log path (default: under sessions/)")
+    p.add_argument(
+        "--stationary",
+        action="store_true",
+        help="belt stopped, parts placed by hand: decide each settled part once (belt.mode)",
+    )
     p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser(

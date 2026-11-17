@@ -20,6 +20,16 @@ Conventions
   ``session_end``; the Scheduler writes the single ``send`` record. Stage timings live under a
   separate ``timings`` key, which determinism comparisons ignore. No wall clock or RNG is used on
   the decision path (``perf_counter`` feeds only the ``timings`` data).
+
+Stationary mode (``belt.mode = "stationary"``): parts are placed by hand on a stopped belt. v = 0,
+nothing is timed and the scheduler is not used. A hand/arm blob (touches the image edge, larger
+than ``stationary.max_part_area_in2``) is dropped before tracking and freezes decisions. A track
+is *measured* (fused and classified once, then locked) when it has ``max_feature_frames`` features
+(or ``classify.min_frames`` after ``stationary.settle_s``) and is settled. When no hand is in view
+and every visible track is measured, each group whose membership changed is decided once: its
+``part`` records (new parts only) and one ``group`` record (``"stationary": true``) are logged
+and the decision is announced to the adapter at once. There is no ``send`` record. A part that is
+moved or removed leaves the decider, and its group is re-decided.
 """
 
 from __future__ import annotations
@@ -60,7 +70,7 @@ from .contracts import (
     flag_names,
     to_log_dict,
 )
-from .decide.rules import Decider
+from .decide.rules import Decider, StationaryDecider
 from .frames import EndOfStream, Frame, FrameSource
 from .schedule import Scheduler, send_time_ns
 from .vision.features import extract
@@ -91,6 +101,8 @@ class TrackView:
     verdict: Verdict | None
     score: float | None  # provisional worst-feature fit (0 perfect, 1 range edge)
     rework: bool  # within rework_gap_in of a neighbouring track
+    group_output: Output | None = None  # stationary: the standing decision of this part's group
+    measured: bool = False  # stationary: classified once and locked
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +139,8 @@ class PipelineSnapshot:
     latency_ms: float = 0.0  # compute time of this frame
     n_parts: int = 0
     n_groups: int = 0
+    stationary: bool = False
+    hand: bool = False  # stationary: a hand/arm is in view, so no decision is made
 
 
 # --------------------------------------------------------------------------- helpers
@@ -199,7 +213,7 @@ def build_pipeline(
             width=info.width,
             height=info.height,
             fps=info.fps,
-            speed_in_s=cfg.belt.speed_in_s,
+            speed_in_s=0.0 if cfg.belt.mode == "stationary" else cfg.belt.speed_in_s,
             loop_length_in=cfg.belt.loop_length_in,
         )
         cal, flat = synthetic_calibration(scene)
@@ -241,6 +255,7 @@ class _TrackState:
     ref_obs: Observation | None = None  # the most central observation, for the saved crop
     ref_image: np.ndarray | None = None
     ref_dist: float = float("inf")
+    measured: bool = False  # stationary: fused + classified once; no more features are taken
 
 
 # --------------------------------------------------------------------------- pipeline
@@ -297,12 +312,20 @@ class Pipeline:
         self._crop_pad_px = round(float(np.linalg.norm(pad[1] - pad[0])))
         self._image_w, self._image_h = width, height
 
-        self.speed_in_s = float(cfg.belt.speed_in_s)
+        self.stationary = cfg.belt.mode == "stationary"
+        self.speed_in_s = 0.0 if self.stationary else float(cfg.belt.speed_in_s)
+        self._roi = roi
+        self._hand = False
         self._latency_ns = round(cfg.timing.camera_latency_ms * NS_PER_MS)
         self._pre = Preprocessor(flat, roi, cfg.segment)
         self._seam = SeamHandler(cfg.seam)
         self._seam.set_scale(self.px_per_in)  # before the first process()
-        self._tracker = Tracker(self.mapper, self.speed_in_s, cfg.track)
+        self._tracker = Tracker(
+            self.mapper, self.speed_in_s, cfg.track, cfg.stationary if self.stationary else None
+        )
+        self._sdec = StationaryDecider(cfg.belt.rework_gap_in)
+        self._measured: dict[int, tuple[PartResult, dict[str, Any]]] = {}  # stationary, on belt
+        self._logged: set[int] = set()  # stationary: tracks whose part record is written
         if library is None:
             lib_path = Path(cfg.classify.library_path)
             library = load_library(
@@ -347,7 +370,7 @@ class Pipeline:
         if self._started:
             return
         self._started = True
-        if not self._manual and self.cfg.scheduler.enabled:
+        if not self._manual and self.cfg.scheduler.enabled and not self.stationary:
             self._scheduler.start()
 
     def note_dropped(self, n: int = 1) -> None:
@@ -392,7 +415,9 @@ class Pipeline:
         t = self._tick("segment", t)
         blobs, seam_obs = self._seam.process(prepared, blobs)
         t = self._tick("seam", t)
-        finished = self._tracker.update(frame.seq, t_cap, blobs)
+        if self.stationary:
+            blobs, self._hand = self._split_hand(blobs)
+        finished = self._tracker.update(frame.seq, t_cap, blobs, hold=self._hand)
         if not self._session_started:
             self._write_session_start()
         t = self._tick("track", t)
@@ -402,10 +427,14 @@ class Pipeline:
 
         self._extract_features(frame, prepared, finished)
         t = self._tick("features", t)
-        for track in finished:
-            self._finish_track(track)
         t = pc()
-        self._close_groups(self.clock.now_ns())
+        if self.stationary:
+            self._stationary_step(t_cap, finished)
+        else:
+            for track in finished:
+                self._finish_track(track)
+            t = pc()
+            self._close_groups(self.clock.now_ns())
         self._tick("decide", t)
         return self._snapshot(frame.seq, t_cap, True, seam_obs, t_begin)
 
@@ -422,10 +451,14 @@ class Pipeline:
         for track in [*self._tracker.live(), *finished]:
             if not track.observations:
                 continue
+            if self.stationary and track.track_id == 0:
+                continue  # never seen cleanly: not a part (and would share a state key)
             obs = track.observations[-1]
             if obs.seq != frame.seq:
                 continue  # unseen this frame
             st = self._states.setdefault(track.track_id, _TrackState())
+            if st.measured:
+                continue  # measured parts keep their classification until moved or removed
             self._update_ref(st, obs, frame)
             if not obs.valid or not pick or len(st.vectors) >= cfg.max_feature_frames:
                 continue
@@ -450,10 +483,20 @@ class Pipeline:
 
     def _finish_track(self, track: Track) -> None:
         st = self._states.pop(track.track_id, _TrackState())
+        part, record = self._build_part(track, st, track.flags)
+        self._parts[track.track_id] = (part, record)
+        self._decider.add(part)
+        self._n_parts += 1
+        record["_feature_ms"] = st.feature_ms
+
+    def _build_part(
+        self, track: Track, st: _TrackState, flags: TrackFlag
+    ) -> tuple[PartResult, dict[str, Any]]:
+        """Fuse + classify ``track`` once and build its PartResult and part log record."""
         t = time.perf_counter_ns()
         fused = fuse(track, st.vectors, self.cfg.features)
         t = self._tick("fuse", t)
-        cls = self._classifier.classify(fused, track.flags)
+        cls = self._classifier.classify(fused, flags)
         self._tick("classify", t)
 
         valid = [o for o in track.observations if o.valid]
@@ -466,7 +509,7 @@ class Pipeline:
             track_id=track.track_id,
             fused=fused,
             classification=cls,
-            flags=track.flags,
+            flags=flags,
             belt_x_lead_in=track.belt_x_lead_in,
             belt_x_trail_in=track.belt_x_trail_in,
             t_ref_ns=ref.t_capture_ns,
@@ -482,7 +525,7 @@ class Pipeline:
             "score": cls.score,
             "runner_up_score": cls.runner_up_score,
             "worst_feature": cls.worst_feature,
-            "flags": flag_names(track.flags),
+            "flags": flag_names(flags),
             "n_frames": fused.n_frames,
             "on_seam": fused.on_seam,
             "median": fused.median,
@@ -499,10 +542,7 @@ class Pipeline:
             "frame_ref": frame_ref,
             "ref_seq": ref_seq,
         }
-        self._parts[track.track_id] = (part, record)
-        self._decider.add(part)
-        self._n_parts += 1
-        record["_feature_ms"] = st.feature_ms
+        return part, record
 
     def _save_crops(
         self, track: Track, st: _TrackState
@@ -530,6 +570,109 @@ class Pipeline:
             frame_ref = f"{cfg.crop_dir}/part_{track.track_id:04d}_frame.png"
             cv2.imwrite(str(self.session_dir / frame_ref), image, params)
         return crop_ref, frame_ref, ref_seq
+
+    # ------------------------------------------------------------------ stationary mode
+
+    def _split_hand(self, blobs: list[Any]) -> tuple[list[Any], bool]:
+        """Drop hand/arm blobs (touch the image or belt edge and exceed max_part_area_in2)."""
+        max_px = self.cfg.stationary.max_part_area_in2 * self.px_per_in**2
+        tol = self.cfg.roi.margin_px + 3
+        r = self._roi
+        keep, hand = [], False
+        for b in blobs:
+            x0, y0, x1, y1 = b.mask_bbox_px
+            edge = (
+                b.touches_edge
+                or x0 <= 0
+                or x1 >= self._image_w
+                or y0 <= r.top + tol
+                or y1 >= r.bottom - tol
+            )
+            if edge and b.area_px > max_px:
+                hand = True
+            else:
+                keep.append(b)
+        return keep, hand
+
+    def _stable(self, track: Track) -> bool:
+        """The last ``track.settle_frames`` observations are all valid (the part is not moving)."""
+        n = self.cfg.track.settle_frames
+        last = track.observations[-n:]
+        return len(last) >= n and all(o.valid for o in last)
+
+    def _stationary_step(self, t_cap: int, finished: list[Track]) -> None:
+        """Measure settled tracks, drop removed/moved parts, and decide changed groups."""
+        stc = self.cfg.stationary
+        for track in finished:
+            self._drop(track)
+        pending = False
+        for track in self._tracker.live():
+            age_s = (t_cap - track.t_first_ns) / NS_PER_S
+            if track.track_id == 0:
+                pending = pending or age_s < stc.give_up_s  # a blob not (yet) seen cleanly
+                continue
+            st = self._states.setdefault(track.track_id, _TrackState())
+            if st.measured:
+                continue
+            n = len(st.vectors)
+            settled = n >= self.cfg.pipeline.max_feature_frames or (
+                n >= self.cfg.classify.min_frames and age_s >= stc.settle_s
+            )
+            if (settled and self._stable(track)) or age_s >= stc.give_up_s:
+                self._measure(track, st)
+            else:
+                pending = True
+        if not self._hand and not pending:
+            now = self.clock.now_ns()
+            for d in self._sdec.update(now):
+                self._emit_stationary(d, now)
+
+    def _measure(self, track: Track, st: _TrackState) -> None:
+        part, record = self._build_part(track, st, self._tracker.settle_flags(track))
+        st.measured = True
+        st.ref_image = None  # the crops are saved; do not hold a frame per part for hours
+        self._measured[track.track_id] = (part, record)
+        self._sdec.add(part)
+        self._tracker.lock(track)
+
+    def _drop(self, track: Track) -> None:
+        """A track finished in stationary mode: its part was removed or moved (or it never measured)."""
+        self._states.pop(track.track_id, None)
+        self._measured.pop(track.track_id, None)
+        self._logged.discard(track.track_id)
+        self._sdec.remove(track.track_id)
+
+    def _emit_stationary(self, d: GroupDecision, now_ns: int) -> None:
+        for tid in d.member_track_ids:
+            if tid in self._logged:
+                continue
+            self._logged.add(tid)
+            _part, record = self._measured[tid]
+            record.pop("_feature_ms", None)
+            record["timings"] = {"latency_ms": (now_ns - record["t_last_ns"]) / NS_PER_MS}
+            self.log.log("part", **to_log_dict(record))
+            self._n_parts += 1
+        self._n_groups += 1
+        self.log.log(
+            "group",
+            **to_log_dict(
+                {
+                    "schema_version": DECISION_LOG_SCHEMA_VERSION,
+                    "group_id": d.group_id,
+                    "member_track_ids": list(d.member_track_ids),
+                    "output": d.output,
+                    "rule": d.rule,
+                    "t_ref_ns": d.t_ref_ns,
+                    "x_lead_in_at_ref": d.x_lead_in_at_ref,
+                    "t_closed_ns": d.t_closed_ns,
+                    "stationary": True,  # decided at once on a stopped belt; no send record follows
+                    "timings": {"latency_ms": (now_ns - d.t_ref_ns) / NS_PER_MS},
+                }
+            ),
+        )
+        announce = getattr(self._adapter, "announce", None)
+        if announce is not None:
+            announce(ScheduledOutput(d.group_id, d.output, d.member_track_ids, now_ns), d.rule)
 
     # ------------------------------------------------------------------ groups and sends
 
@@ -602,10 +745,19 @@ class Pipeline:
                     "measured_speed_in_s": None,  # the seam estimate goes in session_end timings
                     "machine": machine_name(),
                     "source": self.source_name,
-                    "config": self.cfg.model_dump(),
+                    "config": self._config_dump(),
                 }
             ),
         )
+
+    def _config_dump(self) -> dict[str, Any]:
+        """The config for ``session_start``. A moving-mode log omits the stationary keys, so
+        its bytes are what they were before stationary mode existed."""
+        data = self.cfg.model_dump()
+        if not self.stationary:
+            data["belt"].pop("mode", None)
+            data.pop("stationary", None)
+        return data
 
     def flush(self) -> None:
         """End of input: finish every live track and close every group. In replay (ManualClock)
@@ -615,6 +767,16 @@ class Pipeline:
         self._flushed = True
         if not self._session_started:
             self._write_session_start()
+        if self.stationary:
+            # End of input: whatever is still unmeasured is measured as it is, then decided.
+            for track in self._tracker.live():
+                st = self._states.setdefault(track.track_id, _TrackState())
+                if track.track_id and not st.measured:
+                    self._measure(track, st)
+            if not self._hand:
+                for d in self._sdec.update(self._last_t_ns):
+                    self._emit_stationary(d, self.clock.now_ns())
+            return
         tracker = self._tracker
         for _ in range(self.cfg.track.max_missed_frames + 1):
             if not tracker.live():
@@ -689,6 +851,8 @@ class Pipeline:
                 n_parts=self._n_parts,
                 n_groups=self._n_groups,
                 pending=self._pending_view(),
+                stationary=self.stationary,
+                hand=self._hand,
             )
         gap_in = self.cfg.belt.rework_gap_in
         live = sorted(self._tracker.live(), key=lambda tr: (tr.belt_x_trail_in, tr.track_id))
@@ -702,8 +866,17 @@ class Pipeline:
             gaps.append(GapView(up.track_id, down.track_id, g, near))
         views = []
         for tr in live:
+            if self.stationary and tr.track_id == 0:
+                continue
             st = self._states.get(tr.track_id)
             prov = st.provisional if st else None
+            group_out = None
+            measured = False
+            if self.stationary and tr.track_id in self._measured:
+                prov = self._measured[tr.track_id][0].classification  # fixed once measured
+                measured = True
+                gd = self._sdec.group_of(tr.track_id)
+                group_out = gd.output if gd else None
             predicted = None
             if prov is not None:
                 predicted = Output.for_class(prov.part_class) if prov.part_class else Output.MISC
@@ -719,6 +892,8 @@ class Pipeline:
                     verdict=prov.verdict if prov else None,
                     score=prov.score if prov else None,
                     rework=tr.track_id in rework,
+                    group_output=group_out,
+                    measured=measured,
                 )
             )
         return PipelineSnapshot(
@@ -736,6 +911,8 @@ class Pipeline:
             latency_ms=self._latency_ms,
             n_parts=self._n_parts,
             n_groups=self._n_groups,
+            stationary=self.stationary,
+            hand=self._hand,
         )
 
     def _pending_view(self) -> tuple[PendingSend, ...]:
@@ -819,12 +996,21 @@ def open_run_source(
             width=cfg.camera.width,
             height=cfg.camera.height,
             fps=cfg.camera.fps,
-            speed_in_s=cfg.belt.speed_in_s,
+            speed_in_s=0.0 if cfg.belt.mode == "stationary" else cfg.belt.speed_in_s,
             loop_length_in=cfg.belt.loop_length_in,
         )
-        plist = random_parts(parts or 10, scene, seed=0, spacing_s=0.8)
-        duration = seconds or (max((p.t_enter_s for p in plist), default=0.0) + 2.5)
-        source: FrameSource = SyntheticSource(scene, plist, realtime=realtime, duration_s=duration)
+        hands = None
+        if cfg.belt.mode == "stationary":
+            from .synthetic import still_scene
+
+            plist, hands, still_s = still_scene(scene)
+            duration = seconds or still_s
+        else:
+            plist = random_parts(parts or 10, scene, seed=0, spacing_s=0.8)
+            duration = seconds or (max((p.t_enter_s for p in plist), default=0.0) + 2.5)
+        source: FrameSource = SyntheticSource(
+            scene, plist, realtime=realtime, duration_s=duration, hands=hands
+        )
     else:
         from .recording import ReplaySource
 

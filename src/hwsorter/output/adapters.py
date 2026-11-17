@@ -39,6 +39,16 @@ class ScreenLogAdapter:
         if self._echo:
             self._echo(line)
 
+    def announce(self, o: ScheduledOutput, rule: str = "") -> None:
+        """Stationary mode: show a group decision at once (the belt is stopped; nothing is sent)."""
+        tail = f" ({rule})" if rule else ""
+        members = ",".join(f"#{t}" for t in o.member_track_ids)
+        line = f"DECISION group {o.group_id} [{members}] -> {o.output.value}{tail}"
+        with self._lock:
+            self._lines.append(line)
+        if self._echo:
+            self._echo(line)
+
     def recent(self) -> list[str]:
         with self._lock:
             return list(self._lines)
@@ -52,6 +62,7 @@ class MockSerialAdapter:
 
     def __init__(self, fail_with: Exception | None = None) -> None:
         self.sent: list[tuple[ScheduledOutput, int]] = []
+        self.announced: list[tuple[ScheduledOutput, str]] = []  # stationary decisions (not sends)
         self.closed = False
         self.fail_with = fail_with  # raise this from send (tests the ADAPTER_ERROR path)
 
@@ -59,6 +70,9 @@ class MockSerialAdapter:
         if self.fail_with is not None:
             raise self.fail_with
         self.sent.append((o, t_actual_ns))
+
+    def announce(self, o: ScheduledOutput, rule: str = "") -> None:
+        self.announced.append((o, rule))
 
     def close(self) -> None:
         self.closed = True

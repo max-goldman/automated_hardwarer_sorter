@@ -145,3 +145,66 @@ class Decider:
             x_lead_in_at_ref=lead.x_lead_in_at_ref,
             t_closed_ns=t_ns,
         )
+
+
+class StationaryDecider:
+    """Decisions for parts that sit still on a stopped belt (``belt.mode = "stationary"``).
+
+    Measured parts come and go (``add`` / ``remove``). ``update`` clusters the parts present with
+    the same gap rule as ``Grouper`` and returns a ``GroupDecision`` only for each group whose
+    membership is new since the last call, so an untouched group is never decided twice, a group
+    that gained or lost a part is re-decided once, and a part's own classification never
+    changes while it stays (the pipeline classifies it once)."""
+
+    def __init__(self, rework_gap_in: float) -> None:
+        self.rework_gap_in = rework_gap_in
+        self._parts: dict[int, PartResult] = {}
+        self._decided: dict[tuple[int, ...], GroupDecision] = {}
+        self._next_group_id = 1
+
+    def add(self, part: PartResult) -> None:
+        self._parts[part.track_id] = part
+
+    def remove(self, track_id: int) -> bool:
+        return self._parts.pop(track_id, None) is not None
+
+    def has(self, track_id: int) -> bool:
+        return track_id in self._parts
+
+    def current(self) -> list[GroupDecision]:
+        """The standing decision of every group now on the belt (decided at least once)."""
+        return list(self._decided.values())
+
+    def group_of(self, track_id: int) -> GroupDecision | None:
+        for key, d in self._decided.items():
+            if track_id in key:
+                return d
+        return None
+
+    def update(self, t_ns: int) -> list[GroupDecision]:
+        grouper = Grouper(self.rework_gap_in)
+        for p in self._parts.values():
+            grouper.add(p)
+        clusters = grouper.flush()  # most downstream first, members in track-id order
+        keys = {tuple(p.track_id for p in c) for c in clusters}
+        self._decided = {k: d for k, d in self._decided.items() if k in keys}
+        out: list[GroupDecision] = []
+        for members in sorted(clusters, key=lambda c: c[0].track_id):
+            key = tuple(p.track_id for p in members)
+            if key in self._decided:
+                continue
+            output, rule = decide_with_rule(members)
+            lead = max(members, key=lambda p: (p.belt_x_lead_in, -p.track_id))
+            d = GroupDecision(
+                group_id=self._next_group_id,
+                member_track_ids=key,
+                output=output,
+                rule=rule,
+                t_ref_ns=lead.t_ref_ns,
+                x_lead_in_at_ref=lead.x_lead_in_at_ref,
+                t_closed_ns=t_ns,
+            )
+            self._next_group_id += 1
+            self._decided[key] = d
+            out.append(d)
+        return out

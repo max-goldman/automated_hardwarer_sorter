@@ -41,6 +41,7 @@ class CameraConfig(_Section):
 
 
 class BeltConfig(_Section):
+    mode: Literal["moving", "stationary"] = "moving"  # stationary: parts placed by hand, belt off
     speed_in_s: float = Field(4.0, gt=0)
     loop_length_in: float = Field(52.0, gt=0)
     rework_gap_in: float = Field(1.0, ge=0)
@@ -165,6 +166,21 @@ class PipelineConfig(_Section):
     queue_frames: int = Field(120, ge=1)  # pipeline input queue depth, frames
 
 
+class StationaryConfig(_Section):
+    """Used only when ``belt.mode = "stationary"`` (parts placed by hand on a stopped belt)."""
+
+    move_tol_in: float = Field(
+        0.05, gt=0
+    )  # centre step per processed frame that still counts valid
+    relocate_in: float = Field(
+        0.15, gt=0
+    )  # a measured part this far from where it was measured moved
+    max_part_area_in2: float = Field(1.0, gt=0)  # edge-touching blob above this is a hand/arm
+    settle_s: float = Field(0.5, ge=0)  # a part is measured this long after first sighting
+    missed_s: float = Field(0.5, ge=0)  # unseen this long (and no hand) = the part was removed
+    give_up_s: float = Field(3.0, gt=0)  # an unmeasurable track is finalized after this long
+
+
 class SorterConfig(_Section):
     schema_version: int = SCHEMA_VERSION
     camera: CameraConfig = CameraConfig()
@@ -183,6 +199,7 @@ class SorterConfig(_Section):
     classify: ClassifyConfig = ClassifyConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     pipeline: PipelineConfig = PipelineConfig()
+    stationary: StationaryConfig = StationaryConfig()
 
     @model_validator(mode="after")
     def _check_feature_budget(self) -> SorterConfig:
@@ -260,3 +277,10 @@ def load_config(path: str | Path | None = None, root: Path | None = None) -> Sor
             f"config schema_version {cfg.schema_version} is not supported (expected {SCHEMA_VERSION})"
         )
     return cfg
+
+
+def with_stationary(cfg: SorterConfig) -> SorterConfig:
+    """A copy of ``cfg`` with ``belt.mode = "stationary"`` (the ``run --stationary`` flag)."""
+    data = cfg.model_dump()
+    data["belt"]["mode"] = "stationary"
+    return SorterConfig.model_validate(data)
