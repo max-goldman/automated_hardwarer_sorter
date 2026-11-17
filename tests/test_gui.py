@@ -1,16 +1,16 @@
 """The Qt app, driven off-screen: every panel runs on synthetic frames and on a recorded target view."""
+
 import os
 import shutil
 import time
 
-import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from hwsorter.config import load_config, project_root  # noqa: E402
-from hwsorter.frames import Frame  # noqa: E402
-from hwsorter.recording import RecordingReader, RecordingWriter  # noqa: E402
+from hwsorter.config import load_config, project_root
+from hwsorter.frames import Frame
+from hwsorter.recording import RecordingReader, RecordingWriter
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 
@@ -49,15 +49,21 @@ def open_window(source):
 
 
 def test_all_panels_run_on_synthetic_frames(sandbox, app):
-    window, session = open_window("synthetic")
+    window, _session = open_window("synthetic")
     try:
-        for index, panel in enumerate(window.panels):
+        for index, _panel in enumerate(window.panels):
             window.tabs.setCurrentIndex(index)
             pump(app, 0.6)
             assert not window.grab().isNull()
-        live, exposure, focus, scale, belt = window.panels
-        assert "synthetic" in live.fields["Source"].text() and "fps" in live.fields["Frame rate"].text()
-        assert "px at" in exposure.fields["Motion blur"].text() and "0.5 ms" in exposure.fields["Recommended"].text()
+        live, exposure, _focus, scale, belt = window.panels
+        assert (
+            "synthetic" in live.fields["Source"].text()
+            and "fps" in live.fields["Frame rate"].text()
+        )
+        assert (
+            "px at" in exposure.fields["Motion blur"].text()
+            and "0.5 ms" in exposure.fields["Recommended"].text()
+        )
         assert "Target not found" in scale.status.text()
         assert "Belt found between rows" in belt.edges_label.text()
         # Record through the Live panel and check the result on disk.
@@ -70,7 +76,11 @@ def test_all_panels_run_on_synthetic_frames(sandbox, app):
         folders = list((sandbox / "recordings").iterdir())
         assert len(folders) == 1 and folders[0].name.endswith("gui-test")
         with RecordingReader(folders[0]) as reader:
-            assert len(reader) > 10 and reader.meta["complete"] and reader.meta["config"]["camera"]["width"] == 1280
+            assert (
+                len(reader) > 10
+                and reader.meta["complete"]
+                and reader.meta["config"]["camera"]["width"] == 1280
+            )
         # Saving belt edges writes the calibration file for this machine.
         window.tabs.setCurrentIndex(4)
         pump(app, 0.4)
@@ -92,11 +102,11 @@ def test_scale_panel_solves_from_a_recorded_target_view(sandbox, app):
         writer.write(Frame(i, i * 8_333_333, i * 8_333_333, images[(i // 120) % 2]))
     writer.close()
 
-    window, session = open_window(str(sandbox / "target-rec"))
+    window, _session = open_window(str(sandbox / "target-rec"))
     try:
         scale = window.panels[3]
         window.tabs.setCurrentIndex(3)
-        for _ in range(2):                       # the recording shows each target position for one second
+        for _ in range(2):  # the recording shows each target position for one second
             pump(app, 0.6)
             assert "Target found" in scale.status.text()
             scale._capture()
@@ -106,7 +116,11 @@ def test_scale_panel_solves_from_a_recorded_target_view(sandbox, app):
         from hwsorter.calibration import load_calibration
 
         saved = load_calibration().scale
-        assert saved is not None and saved.views == 2 and saved.px_per_in == pytest.approx(PPI, rel=0.004)
+        assert (
+            saved is not None
+            and saved.views == 2
+            and saved.px_per_in == pytest.approx(PPI, rel=0.004)
+        )
         # Focus panel on the same sharp target.
         window.tabs.setCurrentIndex(2)
         pump(app, 0.6)

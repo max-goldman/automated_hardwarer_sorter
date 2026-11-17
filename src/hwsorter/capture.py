@@ -4,6 +4,7 @@ Consumers (recorder, pipeline) each get their own bounded queue so a slow consum
 never stall capture or another consumer. Nothing is dropped silently: source drops,
 timestamp gaps and queue overflows are all counted and written to the event log.
 """
+
 from __future__ import annotations
 
 import logging
@@ -76,22 +77,29 @@ class FrameQueue:
 
 @dataclass
 class CaptureStats:
-    frames: int = 0                 # frames received from the source
-    missing: int = 0                # frames inferred lost from timestamp gaps
-    gaps: int = 0                   # number of timestamp gaps
-    expected_missing: int = 0       # frames lost in announced disruptions (startup, exposure change)
-    fps: float = 0.0                # measured over the last second of capture timestamps
+    frames: int = 0  # frames received from the source
+    missing: int = 0  # frames inferred lost from timestamp gaps
+    gaps: int = 0  # number of timestamp gaps
+    expected_missing: int = 0  # frames lost in announced disruptions (startup, exposure change)
+    fps: float = 0.0  # measured over the last second of capture timestamps
     source: SourceStats = field(default_factory=SourceStats)
     queue_dropped: dict[str, int] = field(default_factory=dict)
     ended: bool = False
 
     @property
     def total_dropped(self) -> int:
-        return self.missing + self.source.driver_dropped + self.source.queue_dropped + sum(self.queue_dropped.values())
+        return (
+            self.missing
+            + self.source.driver_dropped
+            + self.source.queue_dropped
+            + sum(self.queue_dropped.values())
+        )
 
 
 class CaptureService:
-    def __init__(self, source: FrameSource, event_log: EventLog | None = None, level_history: int = 720) -> None:
+    def __init__(
+        self, source: FrameSource, event_log: EventLog | None = None, level_history: int = 720
+    ) -> None:
         self.source = source
         self.events = event_log or EventLog()
         self._queues: list[FrameQueue] = []
@@ -129,7 +137,9 @@ class CaptureService:
         rather than as unexplained missing frames.
         """
         with self._lock:
-            self._disruption_until_ns = max(self._disruption_until_ns, time.monotonic_ns() + int(seconds * 1e9))
+            self._disruption_until_ns = max(
+                self._disruption_until_ns, time.monotonic_ns() + int(seconds * 1e9)
+            )
             self._disruption_reason = reason
 
     def start(self) -> None:
@@ -166,7 +176,7 @@ class CaptureService:
             if prev_ts is not None and self._period_ns:
                 dt = frame.t_capture_ns - prev_ts
                 if dt > 1.5 * self._period_ns:
-                    lost = max(int(round(dt / self._period_ns)) - 1, 1)
+                    lost = max(round(dt / self._period_ns) - 1, 1)
                     with self._lock:
                         expected = frame.t_arrival_ns <= self._disruption_until_ns
                         reason = self._disruption_reason
@@ -176,9 +186,20 @@ class CaptureService:
                             self._missing += lost
                             self._gaps += 1
                     if expected:
-                        self.events.log("frame_gap_expected", seq=frame.seq, gap_ms=round(dt / 1e6, 3), frames_missing=lost, reason=reason)
+                        self.events.log(
+                            "frame_gap_expected",
+                            seq=frame.seq,
+                            gap_ms=round(dt / 1e6, 3),
+                            frames_missing=lost,
+                            reason=reason,
+                        )
                     else:
-                        self.events.log("frame_gap", seq=frame.seq, gap_ms=round(dt / 1e6, 3), frames_missing=lost)
+                        self.events.log(
+                            "frame_gap",
+                            seq=frame.seq,
+                            gap_ms=round(dt / 1e6, 3),
+                            frames_missing=lost,
+                        )
             prev_ts = frame.t_capture_ns
             level = frame_level(frame.image)
             with self._lock:
@@ -189,10 +210,19 @@ class CaptureService:
                 queues = list(self._queues)
             for queue in queues:
                 if not queue.put(frame):
-                    self.events.log("queue_overflow", queue=queue.name, seq=frame.seq, dropped_total=queue.dropped)
+                    self.events.log(
+                        "queue_overflow",
+                        queue=queue.name,
+                        seq=frame.seq,
+                        dropped_total=queue.dropped,
+                    )
                     if time.monotonic() - last_warn > 2.0:
                         last_warn = time.monotonic()
-                        log.warning("consumer %r is falling behind; %d frames discarded so far", queue.name, queue.dropped)
+                        log.warning(
+                            "consumer %r is falling behind; %d frames discarded so far",
+                            queue.name,
+                            queue.dropped,
+                        )
         with self._lock:
             queues = list(self._queues)
         for queue in queues:
@@ -213,7 +243,11 @@ class CaptureService:
             ts = list(self._recent_ts)
             fps = (len(ts) - 1) * 1e9 / (ts[-1] - ts[0]) if len(ts) > 1 and ts[-1] > ts[0] else 0.0
             return CaptureStats(
-                frames=self._frames, missing=self._missing, gaps=self._gaps, expected_missing=self._expected_missing, fps=fps,
+                frames=self._frames,
+                missing=self._missing,
+                gaps=self._gaps,
+                expected_missing=self._expected_missing,
+                fps=fps,
                 source=self.source.stats(),
                 queue_dropped={q.name: q.dropped for q in self._queues},
                 ended=self._ended.is_set(),

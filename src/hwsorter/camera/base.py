@@ -3,6 +3,7 @@
 Platform-specific code (how frames are grabbed, how exposure is set) stays behind
 FrameSource and CameraControl so the rest of the program is identical everywhere.
 """
+
 from __future__ import annotations
 
 import sys
@@ -89,5 +90,7 @@ def open_camera(cfg: CameraConfig) -> tuple[FrameSource, CameraControl]:
             raise
         return source, control
     if backend == "v4l2":
-        raise CameraError("the Linux V4L2 camera backend is planned for milestone 5 and is not built yet")
+        raise CameraError(
+            "the Linux V4L2 camera backend is planned for milestone 5 and is not built yet"
+        )
     raise CameraError(f"unknown camera backend {backend!r}")

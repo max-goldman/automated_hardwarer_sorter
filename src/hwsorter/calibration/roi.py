@@ -1,4 +1,5 @@
 """Region of interest: find the white belt between the dark bands above and below it."""
+
 from __future__ import annotations
 
 import numpy as np

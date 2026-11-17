@@ -9,15 +9,17 @@ Decoded pixels are stored (not the camera's MJPG stream) so a recording replays 
 exact same pixels on every machine. The index is appended per frame, so a recording
 cut short by a crash is still readable up to the last complete frame.
 """
+
 from __future__ import annotations
 
 import json
 import queue
 import subprocess
 import threading
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import zstandard
@@ -26,13 +28,27 @@ from ..frames import Frame
 
 FORMAT_VERSION = 1
 INDEX_DTYPE = np.dtype(
-    [("seq", "<u8"), ("t_capture_ns", "<i8"), ("t_arrival_ns", "<i8"), ("offset", "<u8"), ("size", "<u4"), ("flags", "<u4")]
+    [
+        ("seq", "<u8"),
+        ("t_capture_ns", "<i8"),
+        ("t_arrival_ns", "<i8"),
+        ("offset", "<u8"),
+        ("size", "<u4"),
+        ("flags", "<u4"),
+    ]
 )
 
 
 def _git_commit(folder: Path) -> str | None:
     try:
-        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=folder, capture_output=True, text=True, timeout=2)
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=folder,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
         return out.stdout.strip() or None
     except (OSError, subprocess.SubprocessError):
         return None
@@ -60,7 +76,7 @@ class RecordingWriter:
         self.width, self.height = width, height
         self._meta: dict[str, Any] = {
             "format_version": FORMAT_VERSION,
-            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "created_utc": datetime.now(UTC).isoformat(),
             "width": width,
             "height": height,
             "fps": fps,
@@ -89,7 +105,9 @@ class RecordingWriter:
 
     def write(self, frame: Frame) -> bool:
         if frame.image.shape != (self.height, self.width) or frame.image.dtype != np.uint8:
-            raise ValueError(f"frame is {frame.image.shape} {frame.image.dtype}, recording is {(self.height, self.width)} uint8")
+            raise ValueError(
+                f"frame is {frame.image.shape} {frame.image.dtype}, recording is {(self.height, self.width)} uint8"
+            )
         try:
             self._queue.put_nowait(frame)
             return True
@@ -106,13 +124,23 @@ class RecordingWriter:
                 blob = self._compressor.compress(np.ascontiguousarray(frame.image))
                 self._frames_fh.write(blob)
                 record = np.array(
-                    [(frame.seq, frame.t_capture_ns, frame.t_arrival_ns, self._offset, len(blob), 0)], dtype=INDEX_DTYPE
+                    [
+                        (
+                            frame.seq,
+                            frame.t_capture_ns,
+                            frame.t_arrival_ns,
+                            self._offset,
+                            len(blob),
+                            0,
+                        )
+                    ],
+                    dtype=INDEX_DTYPE,
                 )
                 self._index_fh.write(record.tobytes())
                 self._offset += len(blob)
                 self.frames_written += 1
                 self.bytes_written = self._offset
-        except BaseException as exc:  # noqa: BLE001 - surfaced in close()
+        except BaseException as exc:
             self._error = exc
 
     @property
@@ -125,8 +153,13 @@ class RecordingWriter:
         self._frames_fh.close()
         self._index_fh.close()
         self._meta.update(
-            {"complete": self._error is None, "frame_count": self.frames_written,
-             "frames_not_recorded": self.dropped, "bytes": self.bytes_written, **(extra_meta or {})}
+            {
+                "complete": self._error is None,
+                "frame_count": self.frames_written,
+                "frames_not_recorded": self.dropped,
+                "bytes": self.bytes_written,
+                **(extra_meta or {}),
+            }
         )
         self._write_meta()
         if self._error is not None:
@@ -142,13 +175,19 @@ class RecordingReader:
         self.meta: dict[str, Any] = json.loads(meta_file.read_text())
         if self.meta.get("format_version") != FORMAT_VERSION:
             raise ValueError(f"unsupported recording format {self.meta.get('format_version')!r}")
-        self.width, self.height, self.fps = int(self.meta["width"]), int(self.meta["height"]), float(self.meta["fps"])
+        self.width, self.height, self.fps = (
+            int(self.meta["width"]),
+            int(self.meta["height"]),
+            float(self.meta["fps"]),
+        )
         raw = (self.path / "index.bin").read_bytes()
         usable = len(raw) - len(raw) % INDEX_DTYPE.itemsize  # ignore a torn final record
         self.index = np.frombuffer(raw[:usable], dtype=INDEX_DTYPE)
         self._fh = (self.path / "frames.bin").open("rb")
         size = (self.path / "frames.bin").stat().st_size
-        while len(self.index) and int(self.index[-1]["offset"]) + int(self.index[-1]["size"]) > size:
+        while (
+            len(self.index) and int(self.index[-1]["offset"]) + int(self.index[-1]["size"]) > size
+        ):
             self.index = self.index[:-1]  # frame data cut short
         self._decompressor = zstandard.ZstdDecompressor()
         self._lock = threading.Lock()
@@ -178,7 +217,7 @@ class RecordingReader:
     def close(self) -> None:
         self._fh.close()
 
-    def __enter__(self) -> "RecordingReader":
+    def __enter__(self) -> RecordingReader:
         return self
 
     def __exit__(self, *exc: object) -> None:

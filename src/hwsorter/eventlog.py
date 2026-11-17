@@ -1,10 +1,11 @@
 """Structured log: one JSON object per line. Used for capture events now, decisions later."""
+
 from __future__ import annotations
 
 import json
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ class EventLog:
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self._fh = self.path.open("a", buffering=1, encoding="utf-8")
-        self.log("log_open", wall_time=datetime.now(timezone.utc).isoformat())
+        self.log("log_open", wall_time=datetime.now(UTC).isoformat())
 
     def log(self, kind: str, **fields: Any) -> None:
         record = {"t_ns": time.monotonic_ns(), "kind": kind, **fields}

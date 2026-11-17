@@ -4,6 +4,7 @@ Chosen over OpenCV and PyAV after measurement: it delivers 1280 x 800 at 120 fps
 driver timestamps on the same host clock as time.monotonic(), and hands us the luma
 plane directly (the camera is mono), costing about 0.1 ms per frame.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,8 +41,12 @@ def _model_tag(vendor_id: int, product_id: int) -> str:
 
 def _find_device(vendor_id: int, product_id: int):
     AVF, *_ = _frameworks()
-    session = AVF.AVCaptureDeviceDiscoverySession.discoverySessionWithDeviceTypes_mediaType_position_(
-        [AVF.AVCaptureDeviceTypeExternal], AVF.AVMediaTypeVideo, AVF.AVCaptureDevicePositionUnspecified
+    session = (
+        AVF.AVCaptureDeviceDiscoverySession.discoverySessionWithDeviceTypes_mediaType_position_(
+            [AVF.AVCaptureDeviceTypeExternal],
+            AVF.AVMediaTypeVideo,
+            AVF.AVCaptureDevicePositionUnspecified,
+        )
     )
     tag = _model_tag(vendor_id, product_id)
     for device in session.devices():
@@ -60,9 +65,17 @@ def list_modes(vendor_id: int, product_id: int) -> list[dict[str, Any]]:
     for fmt in device.formats():
         desc = fmt.formatDescription()
         dim = CoreMedia.CMVideoFormatDescriptionGetDimensions(desc)
-        fourcc = int(CoreMedia.CMFormatDescriptionGetMediaSubType(desc)).to_bytes(4, "big").decode("ascii", "replace")
-        rates = sorted({round(r.maxFrameRate(), 2) for r in fmt.videoSupportedFrameRateRanges()}, reverse=True)
-        modes.append({"width": int(dim.width), "height": int(dim.height), "format": fourcc, "fps": rates})
+        fourcc = (
+            int(CoreMedia.CMFormatDescriptionGetMediaSubType(desc))
+            .to_bytes(4, "big")
+            .decode("ascii", "replace")
+        )
+        rates = sorted(
+            {round(r.maxFrameRate(), 2) for r in fmt.videoSupportedFrameRateRanges()}, reverse=True
+        )
+        modes.append(
+            {"width": int(dim.width), "height": int(dim.height), "format": fourcc, "fps": rates}
+        )
     return modes
 
 
@@ -79,7 +92,9 @@ def _ensure_camera_access() -> None:
             result["granted"] = bool(granted)
             done.set()
 
-        AVF.AVCaptureDevice.requestAccessForMediaType_completionHandler_(AVF.AVMediaTypeVideo, handler)
+        AVF.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+            AVF.AVMediaTypeVideo, handler
+        )
         done.wait(120)
         if result.get("granted"):
             return
@@ -94,20 +109,22 @@ _delegate_class = None
 
 def _get_delegate_class():
     """Define the Objective-C delegate class once (PyObjC forbids redefinition)."""
-    global _delegate_class
+    global _delegate_class  # noqa: PLW0603  (lazy one-time ObjC class definition)
     if _delegate_class is not None:
         return _delegate_class
     _, CoreMedia, CV, _, objc, NSObject = _frameworks()
 
     class HWSorterFrameDelegate(NSObject):
         def initWithOwner_(self, owner):
-            self = objc.super(HWSorterFrameDelegate, self).init()
+            self = objc.super(HWSorterFrameDelegate, self).init()  # noqa: PLW0642  (PyObjC init idiom)
             if self is None:
                 return None
             self._owner = owner
             return self
 
-        def captureOutput_didOutputSampleBuffer_fromConnection_(self, output, sample_buffer, connection):
+        def captureOutput_didOutputSampleBuffer_fromConnection_(
+            self, output, sample_buffer, connection
+        ):
             arrival_ns = time.monotonic_ns()
             owner = self._owner
             t = CoreMedia.CMSampleBufferGetPresentationTimeStamp(sample_buffer)
@@ -121,13 +138,19 @@ def _get_delegate_class():
                 width = CV.CVPixelBufferGetWidthOfPlane(pixel_buffer, 0)
                 stride = CV.CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, 0)
                 base = CV.CVPixelBufferGetBaseAddressOfPlane(pixel_buffer, 0)
-                view = np.frombuffer(base.as_buffer(stride * height), np.uint8).reshape(height, stride)
-                image = view[:: owner._step_y, :width][:, :: owner._step_x].copy()  # copy: buffer is recycled
+                view = np.frombuffer(base.as_buffer(stride * height), np.uint8).reshape(
+                    height, stride
+                )
+                image = view[:: owner._step_y, :width][
+                    :, :: owner._step_x
+                ].copy()  # copy: buffer is recycled
             finally:
                 CV.CVPixelBufferUnlockBaseAddress(pixel_buffer, CV.kCVPixelBufferLock_ReadOnly)
             owner._push(pts_ns, arrival_ns, image)
 
-        def captureOutput_didDropSampleBuffer_fromConnection_(self, output, sample_buffer, connection):
+        def captureOutput_didDropSampleBuffer_fromConnection_(
+            self, output, sample_buffer, connection
+        ):
             self._owner._driver_drop()
 
     _delegate_class = HWSorterFrameDelegate
@@ -150,9 +173,17 @@ class AVFoundationSource(FrameSource):
         self._use_arrival_time = False
         self._running = False
         self.info = SourceInfo(
-            name="camera", width=cfg.width, height=cfg.height, fps=cfg.fps, live=True,
-            details={"backend": "avfoundation", "timestamps": "driver",
-                     "flip_horizontal": cfg.flip_horizontal, "flip_vertical": cfg.flip_vertical},
+            name="camera",
+            width=cfg.width,
+            height=cfg.height,
+            fps=cfg.fps,
+            live=True,
+            details={
+                "backend": "avfoundation",
+                "timestamps": "driver",
+                "flip_horizontal": cfg.flip_horizontal,
+                "flip_vertical": cfg.flip_vertical,
+            },
         )
 
     # -- called on the capture dispatch queue ----------------------------------------
@@ -164,7 +195,9 @@ class AVFoundationSource(FrameSource):
             self._use_arrival_time = True
             self.info.details["timestamps"] = "arrival"
         with self._cond:
-            frame = Frame(self._seq, arrival_ns if self._use_arrival_time else pts_ns, arrival_ns, image)
+            frame = Frame(
+                self._seq, arrival_ns if self._use_arrival_time else pts_ns, arrival_ns, image
+            )
             self._seq += 1
             if len(self._queue) >= self._cfg.queue_frames:
                 self._queue.popleft()
@@ -197,8 +230,13 @@ class AVFoundationSource(FrameSource):
                 if abs(rate.maxFrameRate() - cfg.fps) < 1.0:
                     chosen = (fmt, rate)
         if chosen is None:
-            modes = ", ".join(f"{m['width']}x{m['height']}@{m['fps'][0]:g}" for m in list_modes(cfg.usb_vendor_id, cfg.usb_product_id))
-            raise CameraError(f"camera has no {cfg.width}x{cfg.height} at {cfg.fps:g} fps mode. Available: {modes}")
+            modes = ", ".join(
+                f"{m['width']}x{m['height']}@{m['fps'][0]:g}"
+                for m in list_modes(cfg.usb_vendor_id, cfg.usb_product_id)
+            )
+            raise CameraError(
+                f"camera has no {cfg.width}x{cfg.height} at {cfg.fps:g} fps mode. Available: {modes}"
+            )
         fmt, rate = chosen
 
         session = AVF.AVCaptureSession.alloc().init()
@@ -245,4 +283,6 @@ class AVFoundationSource(FrameSource):
 
     def stats(self) -> SourceStats:
         with self._cond:
-            return SourceStats(self._stats.delivered, self._stats.driver_dropped, self._stats.queue_dropped)
+            return SourceStats(
+                self._stats.delivered, self._stats.driver_dropped, self._stats.queue_dropped
+            )
