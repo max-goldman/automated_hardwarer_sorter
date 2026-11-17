@@ -5,10 +5,19 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QSplitter, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QTabWidget,
+)
 
 from ..config import SorterConfig
 from ..session import Session
+from .debug_overlay import DebugOverlay
 from .panels import BeltPanel, ExposurePanel, FocusPanel, LivePanel, Panel, ScalePanel
 from .video import VideoWidget
 
@@ -33,6 +42,10 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
         self.setCentralWidget(splitter)
+        self.debug = DebugOverlay(lambda: getattr(self.session._runner, "snapshot", None))
+        self.debug_check = QCheckBox("Pipeline debug overlay")
+        self.debug_check.toggled.connect(self._debug_toggled)
+        self.statusBar().addWidget(self.debug_check)
         self.status_label = QLabel()
         self.statusBar().addPermanentWidget(self.status_label, 1)
         self.resize(1500, 800)
@@ -43,7 +56,17 @@ class MainWindow(QMainWindow):
         self.timer.start(int(1000 / session.cfg.gui.display_fps))
 
     def _tab_changed(self, index: int) -> None:
-        self.video.overlay = self.panels[index].overlay
+        panel = self.panels[index]
+
+        def overlay(painter) -> None:
+            panel.overlay(painter)
+            self.debug(painter)  # draws nothing unless enabled and a snapshot is attached
+
+        self.video.overlay = overlay
+
+    def _debug_toggled(self, on: bool) -> None:
+        self.debug.set_enabled(on)
+        self.video.update()
 
     def _tick(self) -> None:
         frame = self.session.capture.latest()
@@ -56,7 +79,10 @@ class MainWindow(QMainWindow):
             if exposure is not None
             else f"{stats.fps:5.1f} fps   |   {stats.frames} frames   |   {lost} lost"
         )
+        fresh_snapshot = self.debug.refresh()
         if frame is None or frame.seq == self._last_seq:
+            if fresh_snapshot:
+                self.video.update()  # new snapshot but no new frame
             return
         self._last_seq = frame.seq
         self.video.set_frame(frame.image)

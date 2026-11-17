@@ -16,6 +16,7 @@ class VideoWidget(QWidget):
         self._array: np.ndarray | None = None
         self._image: QImage | None = None
         self.overlay: Callable[[QPainter], None] | None = None
+        self.paint_count = 0
         self.setMinimumSize(480, 300)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
@@ -28,6 +29,7 @@ class VideoWidget(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:
+        self.paint_count += 1
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(24, 24, 24))
         if self._image is None:

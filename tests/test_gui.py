@@ -128,3 +128,76 @@ def test_scale_panel_solves_from_a_recorded_target_view(sandbox, app):
         assert focus._width is not None and focus._width < 4.0
     finally:
         window.close()
+
+
+def _fake_snapshot():
+    import numpy as np
+
+    from hwsorter.contracts import Output, TrackFlag, Verdict
+    from hwsorter.pipeline import GapView, PendingSend, PipelineSnapshot, TrackView
+
+    def track(i, x, rework):
+        outline = np.array([[x, 300], [x + 60, 300], [x + 60, 360], [x, 360]], dtype=np.int32)
+        return TrackView(
+            i, outline, 1.0 * i, 1.5 * i, TrackFlag.FEW_FRAMES, 4,
+            Output.NUT_025, Verdict.CONFIDENT, 0.2, rework,
+        )  # fmt: skip
+
+    return PipelineSnapshot(
+        seq=1,
+        t_capture_ns=0,
+        processed=True,
+        tracks=(track(1, 200, True), track(2, 320, True)),
+        gaps=(GapView(1, 2, 0.3, True),),
+        pending=(PendingSend(7, Output.REWORK, 1, 2.5),),
+        fps=118.0,
+        n_dropped=1,
+        latency_ms=4.2,
+        n_parts=2,
+        n_groups=1,
+    )
+
+
+def test_debug_overlay_toggle_and_snapshot(sandbox, app):
+    window, _session = open_window("synthetic")
+    try:
+        snap = _fake_snapshot()
+        window.debug.source = lambda: snap
+        pump(app, 0.3)
+        assert window.debug.track_count == 0 and not window.debug.hud_lines()  # off: draws nothing
+        window.debug_check.setChecked(True)
+        pump(app, 0.3)
+        assert window.debug.track_count == 2
+        ((group, out, remaining),) = window.debug.countdowns()
+        assert group == 7 and out == "rework" and 0 < remaining <= 2.5
+        assert any("118.0 fps" in line and "dropped 1" in line for line in window.debug.hud_lines())
+        assert not window.grab().isNull()  # renders without error
+        window.debug_check.setChecked(False)
+        pump(app, 0.2)
+        assert window.debug.track_count == 0 and window.debug.snapshot is None
+        # No pipeline attached: enabling shows nothing and the live view is unaffected.
+        window.debug.source = lambda: None
+        window.debug_check.setChecked(True)
+        pump(app, 0.3)
+        assert not window.debug.active and not window.grab().isNull()
+    finally:
+        window.close()
+
+
+def test_debug_overlay_overhead(sandbox, app):
+    """Display rate with the overlay on vs off on a synthetic run (printed; must not collapse)."""
+    window, _session = open_window("synthetic")
+    try:
+        snap = _fake_snapshot()
+        window.debug.source = lambda: snap
+        rates = {}
+        for on in (False, True):
+            window.debug_check.setChecked(on)
+            pump(app, 0.3)
+            n0, t0 = window.video.paint_count, time.monotonic()
+            pump(app, 1.5)
+            rates[on] = (window.video.paint_count - n0) / (time.monotonic() - t0)
+        print(f"display updates/s: overlay off {rates[False]:.1f}, on {rates[True]:.1f}")
+        assert rates[True] > 0.7 * rates[False]
+    finally:
+        window.close()
