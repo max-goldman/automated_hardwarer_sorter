@@ -98,7 +98,7 @@ Done this session (in order):
 - **010 scheduler:** DONE, merged `--no-ff`. Jitter test made opt-in (`HWSORTER_RUN_JITTER`); the scheduler fire loop is now guarded (logging.exception, thread survives). Session-2 review round-1 blocking item satisfied; the orchestrator self-reviewed the small diff (sound) in place of a full round-2.
 - **004 segmentation:** fresh Opus review = APPROVE (no correctness/contract bugs; 6 parts→1 blob, shadows/specks rejected, facets don't split). Measured ~16 ms/frame (full-frame-bound) vs ~3 ms target. Budget rework IN PROGRESS (two-stage coarse-then-crop, label LUT, single-pass `inv_flat` preprocess, coarse_scale 1-vs-2 equivalence test). `segment()` mapper param blessed (see Architecture decisions).
 
-Live status: 002b · 004 · 005 · 007 · 008 · 010 DONE·merged (all wave-2 complete) | 011 IN PROGRESS (pipeline runner) | 012–016 TODO (wave 4 depends on 011).
+Live status: wave-2 (002b, 004–010) + 011 pipeline + 012 grading + 014 GUI overlay DONE·merged. 011's end-to-end exposed 3 bolt/seam bugs -> task 017 (Opus worker, IN PROGRESS). 013 report IN PROGRESS. 015 bench waits on 017 (needs real accuracy + fixed-pipeline goldens). 016 docs waits on 012–015. 3 strict xfails stand in tests/test_pipeline.py until 017 lands (bolt 83%, seam sliver).
 
 ### Notes for task 011 (integration) — gathered from the wave-2 reviews
 - `segment(prepared, cfg, mapper)`: 011 MUST pass a real `PlaneMapper`, not None, or the min-area gate drops to an 8 px floor. `segment.coarse_scale` defaults to 2 (two-stage); equivalence with 1 is tested.
