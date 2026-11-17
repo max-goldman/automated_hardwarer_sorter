@@ -40,7 +40,11 @@ _SPEED_MIN_SIGHTINGS = 5
 _PASS_GAP_S = 0.15  # time without a seam sighting that ends a pass
 _PASS_JUMP_PX = 60.0  # backward jump of the seam centre that starts a new pass
 _REPAIR_EPS = 0.08  # |flat / template - 1| below this is "explained by the seam"
+_SEAM_DIP = 0.03  # only template pixels this much below belt are seam; belt-level is never subtracted
 _MARGIN_FRAC = 0.15  # band margin (fraction of width) that still counts as seam stitching
+_SEAM_BAND_FRAC = 0.80  # a blob with at least this area fraction inside the band is seam, not a part
+_SEAM_RESIDUE_FRAC = 0.80  # on a detected seam, output blobs this far inside the band are seam residue
+_EDGE_STRIP_IN = 0.15  # belt-edge shading strips at the ROI top/bottom are thinner than this (inches)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -160,6 +164,21 @@ class SeamHandler:
                 det = det2
                 frag, overlap, near = self._classify(blobs, det.xc, h_img, hw)
 
+        if not self.template_ready:
+            # Bootstrap: with no template the seam cannot be subtracted, so a blob that lies
+            # almost entirely within the seam band is the seam itself, not a part. Drop it and
+            # let the template learn from this part-free view; once the template is ready,
+            # _repair subtracts the seam from overlapping blobs instead of this crude drop.
+            seam_only = {
+                i
+                for i in range(len(blobs))
+                if i not in frag
+                and self._band_area_frac(blobs[i], det.xc, h_img, hw) >= _SEAM_BAND_FRAC
+            }
+            frag |= seam_only
+            overlap -= seam_only
+            near -= seam_only
+
         out: list[Blob] = []
         for i, b in enumerate(blobs):
             if i in frag:
@@ -169,10 +188,25 @@ class SeamHandler:
             else:
                 out.append(b)
 
+        # A real part straddles the seam and sticks well out of the band; seam residue (including
+        # the strips _repair leaves where the seam meets the belt edge at the ROI top/bottom) sits
+        # within the band or hugs the ROI edge. Drop those so the seam never yields a part.
+        out = [b for b in out if not self._is_seam_residue(b, det.xc, h_img, hw, p.roi)]
+
         if not near:
             self._learn(p, g, det.xc)
         self._update_speed(p, det)
         return out, self._obs(p, det, g, present=True)
+
+    def _is_seam_residue(self, b: Blob, xc: float, h_img: int, hw: float, roi) -> bool:  # noqa: ANN001
+        """A blob left over from the seam itself (within the band, or a belt-edge strip)."""
+        if self._band_area_frac(b, xc, h_img, hw) >= _SEAM_RESIDUE_FRAC:
+            return True
+        # The seam meets the belt edge at the ROI top/bottom, where _repair leaves strips. Parts
+        # travel left-right and never clip the ROI top/bottom, so a blob hugging it on a seam
+        # frame is belt-edge/seam residue, not a part.
+        _, y0, _, y1 = b.mask_bbox_px
+        return y0 <= roi.top + 1 or y1 >= roi.bottom - 1
 
     # ------------------------------------------------------------------ geometry helpers
 
@@ -338,10 +372,10 @@ class SeamHandler:
 
     def _classify(
         self, blobs: list[Blob], xc: float, h_img: int, hw: float
-    ) -> tuple[set[int], set[int], bool]:
+    ) -> tuple[set[int], set[int], set[int]]:
         frag: set[int] = set()
         overlap: set[int] = set()
-        near = False
+        near: set[int] = set()
         lim = hw * (1.0 + 2 * _MARGIN_FRAC)
         near_lim = self._half * self._sin
         for i, b in enumerate(blobs):
@@ -351,10 +385,24 @@ class SeamHandler:
                 frag.add(i)
             elif (lo <= hw and hi >= -hw) and (np.any(np.abs(d) <= hw) or (lo < -hw and hi > hw)):
                 overlap.add(i)
-                near = True
+                near.add(i)
             elif hi >= -near_lim and lo <= near_lim:
-                near = True
+                near.add(i)
         return frag, overlap, near
+
+    def _band_area_frac(self, b: Blob, xc: float, h_img: int, hw: float) -> float:
+        """Fraction of the blob's filled area that lies within the seam band."""
+        c = b.contour_px
+        x0, y0 = np.floor(c.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(c.max(axis=0)).astype(int)
+        m = np.zeros((int(y1 - y0) + 1, int(x1 - x0) + 1), np.uint8)
+        cv2.fillPoly(m, [np.round(c - [x0, y0]).astype(np.int32)], 1)
+        ys, xs = np.nonzero(m)
+        if ys.size == 0:
+            return 0.0
+        dist = (xs + x0 - self._x_at(xc, ys + y0, h_img)) * self._sin
+        lim = hw * (1.0 + 2 * _MARGIN_FRAC)
+        return float(np.mean(np.abs(dist) <= lim))
 
     def _template_image(
         self, xc: float, x0: int, x1: int, y0: int, y1: int, h_img: int
@@ -397,7 +445,10 @@ class SeamHandler:
         dist = (xs[None, :] - self._x_at(xc, ys, h_img)[:, None]) * self._sin
         hw = width_px / 2.0
         inband = np.abs(dist) <= hw * (1.0 + 2 * _MARGIN_FRAC)
-        explained = inband & (np.abs(ratio - 1.0) < _REPAIR_EPS)
+        # Only subtract where the template is an actual seam dip (darker than belt) and the frame
+        # matches it. A part's own belt-bright surface (a bolt's shank highlight) sits at belt
+        # level, so it is never mistaken for the seam and the part is not punched into fragments.
+        explained = inband & (np.abs(ratio - 1.0) < _REPAIR_EPS) & (tmpl < 1.0 - _SEAM_DIP)
         clean = (mask > 0) & ~explained
         clean_u8 = clean.astype(np.uint8)
 

@@ -50,6 +50,7 @@ class _State:
     trail: float
     cx: float
     cy: float
+    slot: int = 0  # internal live-track key; the public track_id is assigned lazily (see Tracker)
     missed: int = 0
     hist: list[_Hist] = field(default_factory=list)
 
@@ -75,8 +76,9 @@ class Tracker:
         self._left_in = float(edges[0, 0])
         self._right_in = float(edges[1, 0])
         self._t0: int | None = None
-        self._next_id = 1
-        self._states: dict[int, _State] = {}
+        self._next_id = 1  # public track_id, assigned to a track on its first valid observation
+        self._next_slot = 1  # internal live-track key, assigned on creation
+        self._states: dict[int, _State] = {}  # keyed by slot
 
     # ------------------------------------------------------------------ public
     @property
@@ -100,8 +102,8 @@ class Tracker:
         shift = self.v * (t_ns - self._t0) / NS_PER_S
         dets = [self._detect(b, t_ns, shift) for b in blobs]
 
-        states = sorted(self._states.values(), key=lambda s: s.track.track_id)
-        matched: set[int] = set()
+        states = sorted(self._states.values(), key=lambda s: s.slot)
+        matched: set[int] = set()  # slots
         used: set[int] = set()
 
         # Merge detection: predicted positions of >= 2 tracks inside one blob.
@@ -110,50 +112,53 @@ class Tracker:
             if len(inside) >= 2:
                 used.add(j)
                 for s in inside:
-                    matched.add(s.track.track_id)
+                    matched.add(s.slot)
                     s.track.flags |= TrackFlag.MERGED
                     self._observe(s, seq, d, shift, merged=True)
 
         # Greedy nearest assignment on remaining tracks and blobs.
         pairs = []
         for s in states:
-            if s.track.track_id in matched:
+            if s.slot in matched:
                 continue
             for j, d in enumerate(dets):
                 if j in used:
                     continue
                 dist = self._distance(s, d)
                 if dist <= self.cfg.gate_in:
-                    pairs.append((dist, s.track.track_id, j))
+                    pairs.append((dist, s.slot, j))
         pairs.sort()
-        for _dist, tid, j in pairs:
-            if tid in matched or j in used:
+        for _dist, slot, j in pairs:
+            if slot in matched or j in used:
                 continue
-            matched.add(tid)
+            matched.add(slot)
             used.add(j)
-            self._observe(self._states[tid], seq, dets[j], shift, merged=False)
+            self._observe(self._states[slot], seq, dets[j], shift, merged=False)
 
-        # Unmatched blobs start new tracks.
+        # Unmatched blobs start new tracks (public track_id assigned lazily, on first valid frame).
         for j, d in enumerate(dets):
             if j in used:
                 continue
-            track = Track(track_id=self._next_id)
-            self._next_id += 1
-            state = _State(track, d.lead, d.trail, d.cx, d.cy)
-            self._states[track.track_id] = state
+            slot = self._next_slot
+            self._next_slot += 1
+            state = _State(Track(track_id=0), d.lead, d.trail, d.cx, d.cy, slot=slot)
+            self._states[slot] = state
             self._observe(state, seq, d, shift, merged=False)
 
-        # Finish tracks that left the view or were missed too long.
+        # Finish tracks that left the view or were missed too long. A track that never earned a
+        # public id (no valid observation ever) is a seam tail or an edge/merge fragment, not a
+        # part: drop it so it consumes no id and emits nothing.
         finished: list[Track] = []
         for s in states:
-            tid = s.track.track_id
-            if tid in matched:
+            if s.slot in matched:
                 s.missed = 0
                 continue
             s.missed += 1
             trail_x = s.trail + shift  # image-plane x of the trailing edge now
             if trail_x > self._right_in or s.missed > self.cfg.max_missed_frames:
-                finished.append(self._finish(s))
+                t = self._finish(s)
+                if t.track_id != 0:
+                    finished.append(t)
         return finished
 
     # ------------------------------------------------------------------ internals
@@ -200,6 +205,9 @@ class Tracker:
             ):
                 valid = False
         t = s.track
+        if valid and t.track_id == 0:  # first valid frame: this track is a real part now
+            t.track_id = self._next_id
+            self._next_id += 1
         t.observations.append(Observation(seq, d.t_ns, d.blob, d.contour_in, valid))
         if d.blob.on_seam:
             t.flags |= TrackFlag.ON_SEAM
@@ -240,5 +248,5 @@ class Tracker:
         if all(o.blob.touches_edge for o in t.observations):
             t.flags |= TrackFlag.TOUCHES_EDGE
         t.finished = True
-        del self._states[t.track_id]
+        del self._states[s.slot]
         return t
