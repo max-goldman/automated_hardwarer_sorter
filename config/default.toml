@@ -63,7 +63,7 @@ display_fps = 30
 
 [segment]
 deviation_threshold = 0.12  # |flat - 1| above this is part (flat-fielded belt is ~1.0)
-edge_threshold = 0.06       # sub-pixel edge level: |flat - 1| crossing that places the contour
+edge_threshold = 0.03       # sub-pixel edge level: |flat - 1| crossing that places the contour
 edge_gradient_threshold = 0.08  # |grad flat| per px that marks a sharp edge
 shadow_max_depth = 0.10     # soft dark regions shallower than this are shadow, not part
 gain_alpha = 0.05           # slow per-frame brightness-gain tracker rate
