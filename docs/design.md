@@ -138,6 +138,17 @@ Parts are in view for 60 to 85 frames but about 10 are enough. Adopted settings
 - **Acceptance scene:** end to end on the synthetic acceptance scene (30 parts) the pipeline
   gives 30/30 correct outputs with zero contamination, one track, decision and send per
   part; determinism holds.
+- **Harsh random scene.** On a deliberately harsh 60-part scene (random bolt angles 0-360 deg,
+  random cross-belt positions, seam present -- `bench stride_parts`) the pipeline scores about
+  85% with **zero contamination**; the misses are the seam-interaction class below plus a few
+  random-angle bolts and the occasional unresolved part, all failing safe to REWORK/MISC. Real
+  absolute accuracy is owed at checkpoints 2-3 with a real camera and seam.
+- **Unscorable parts report UNRESOLVED, not OUT_OF_SCOPE.** When every candidate pose scores
+  non-finite (e.g. all required features read NaN), the classifier returns UNRESOLVED rather than
+  OUT_OF_SCOPE. Both are safe -- neither sends the part to a class bin; for a lone part it means
+  REWORK instead of MISC, for a group it only shifts REWORK vs MISC. A strict reading of the
+  verdict rule would label it OUT_OF_SCOPE; this is a deliberate, harmless simplification in
+  `classify/ranges.py`.
 - **Bolt lying ON the seam (documented edge case).** A bolt whose body lies on the seam can fuse
   with the seam's stitch strip in `seam._repair`; the track is then MERGED, which is always
   UNRESOLVED, so the part goes to REWORK. This is safe (a re-feed, never contamination) and was
