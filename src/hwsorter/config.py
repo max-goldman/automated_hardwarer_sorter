@@ -92,7 +92,7 @@ class GuiConfig(_Section):
 
 class SegmentConfig(_Section):
     deviation_threshold: float = Field(0.12, gt=0)  # |flat - 1| above this is part (belt ~1.0)
-    edge_threshold: float = Field(0.06, gt=0)  # sub-pixel edge level: |flat - 1| crossing used to
+    edge_threshold: float = Field(0.03, gt=0)  # sub-pixel edge level: |flat - 1| crossing used to
     # place the contour between pixels (NOT a hysteresis seed; the seed is deviation_threshold)
     edge_gradient_threshold: float = Field(0.08, gt=0)  # |grad flat| per px that marks a sharp edge
     shadow_max_depth: float = Field(0.10, ge=0)  # soft dark regions shallower than this are shadow
