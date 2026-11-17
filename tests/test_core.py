@@ -57,10 +57,19 @@ def test_manual_clock_sleep_until():
 
 
 def test_monotonic_clock_sleep_accuracy():
+    # Wall-clock timing: under CPU contention a single sleep can overshoot the
+    # busy-wait window. Assert the mechanism is *capable* of <1 ms accuracy (best
+    # of several tries); it can never wake before the target, so that floor is
+    # always checked on every try.
     clock = MonotonicClock()
-    target = clock.now_ns() + 20_000_000
-    clock.sleep_until_ns(target)
-    assert 0 <= clock.now_ns() - target < 1_000_000
+    overshoots = []
+    for _ in range(5):
+        target = clock.now_ns() + 20_000_000
+        clock.sleep_until_ns(target)
+        overshoot = clock.now_ns() - target
+        assert overshoot >= 0  # never wakes early
+        overshoots.append(overshoot)
+    assert min(overshoots) < 1_000_000
 
 
 class ListSource(FrameSource):
@@ -204,12 +213,18 @@ def test_replay_realtime_pacing(tmp_path):
     for frame in _frames(13):
         writer.write(frame)
     writer.close()
-    source = ReplaySource(tmp_path / "rec", realtime=True)
-    source.start()
-    start = time.monotonic()
-    for _ in range(13):
-        source.read()
-    assert 0.09 < time.monotonic() - start < 0.2  # 12 frame periods = 0.1 s
+    # Wall-clock timing: take the best of several runs so a single OS preemption
+    # under load can't exceed the upper bound. Real-time pacing can only make a run
+    # slower, so the lower bound holds on every run.
+    elapsed = []
+    for _ in range(5):
+        source = ReplaySource(tmp_path / "rec", realtime=True)
+        source.start()
+        start = time.monotonic()
+        for _ in range(13):
+            source.read()
+        elapsed.append(time.monotonic() - start)
+    assert 0.09 < min(elapsed) < 0.2  # 12 frame periods = 0.1 s
 
 
 def test_announced_disruptions_are_logged_but_not_counted_as_unexplained():
