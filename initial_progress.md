@@ -182,6 +182,35 @@ Both are in place and tested. The next step was to finish milestone 1.
 
 ---
 
+# Session 3 (2026-11-17): Milestones 2 and 3 completed, verified, synthetic-only
+
+Orchestrator: Opus 4.8 on a Linux box with no camera. Everything was built and verified against `synthetic.py` scenes, generated recordings and unit tests — no camera, rig or real recording. Subagents (sonnet workers, Opus reviewers) ran in manual git worktrees and reported back; the orchestrator owned all `.agent-board/` writes and all merges. (A server restart mid-session dropped one in-flight worker at 1h39m; its WIP was recovered from its worktree and it was resumed to completion.)
+
+## Where things stand (end of session 3)
+M2 and M3 are COMPLETE on `develop`, verified and reviewed without hardware. Full suite passes (~300 tests, 3 skipped, 1 accepted xfail), ruff + format clean, and `sorter run --source synthetic --headless` runs end to end. CLI: `camera-info, gui, record, replay (+ --pipeline / --compare), run, grade, report, bench (+ --compare-strides), derive-ranges, recordings, calibrate`.
+
+## Acceptance (synthetic)
+- `test_end_to_end_30_parts_with_seam`: **30/30, zero contamination**, one track/decision/send per part.
+- Harsh 60-part random scene (bench `stride_parts`): 85%, **zero contamination**; misses are the deferred seam-interaction class + a couple of random-angle bolts + 1 unresolved nut, all -> REWORK/MISC (safe). See `.agent-board/board.md` "Accuracy characterization".
+- `frame_stride` 1-vs-2 identical accuracy (the ADOPTED budget guard passes); feature-median error grows <=0.0001 in.
+- Determinism: replay is byte-identical excluding `timings`/hostname (`replay --compare`).
+- Dev-box bench ~10 ms/processed-frame on a 2-core Xeon; acceptance timing needs the Dell (M5).
+
+## Session-2 loose ends — all resolved
+- 002b budget keys; 004 segmentation (+ two-stage budget rework, Opus-reviewed x2); 005 seam (verified + tests, Opus-reviewed); 007 features/fusion (Opus-reviewed); 008 classifier (verified, fixed a confident-wrong washer case); 010 scheduler (jitter opt-in) — all merged.
+- 011 pipeline + decision log; 012 grading; 013 report; 014 GUI overlay; 015 bench + stride guard + golden regression; 016 docs + derive-ranges — all merged.
+- 011's end-to-end surfaced 3 bolt/seam bugs -> task 017 (stable bolt head capture via edges; tracker merge/absorb rewrite so one blob = one track; seam ROI-top sliver removal; Opus-APPROVED, no contamination path) and task 018 (robust `head_length_in` -> 30/30).
+- Carried 011 notes honored: `Tracker.t0_ns`; `Grouper.advance` frontier accounts for live tracks; `segment()` receives a real mapper.
+- Infra: `machine` added to `DETERMINISM_IGNORE_KEYS` (cross-machine compare); `tests/conftest.py` forces Qt offscreen; two wall-clock timing tests made opt-in / best-of-N for a deterministic default suite.
+
+## Accepted limit (user decision, 2026-11-17)
+The one remaining xfail — a bolt lying ON the seam fuses with the stitch strip in `seam._repair` -> MERGED -> REWORK (SAFE, never contamination) — is accepted as safe REWORK and parked on `hardware-pending` for a real-seam re-check at checkpoint 2.
+
+## For the next (hardware) session
+See `hardware-pending` / `HARDWARE_PENDING.md`: checkpoints 1-3, real-recording checks for 004/007/011, the `seam._repair` real-seam re-check, M4 (serial / collector / timing calibration) and M5 (Dell / Linux, V4L2 backend, `bench` + `replay --compare`, the acceptance run). Nothing in the M2/M3 software is blocking.
+
+---
+
 # Approved plan (in full)
 
 ## Context
