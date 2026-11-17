@@ -1,6 +1,6 @@
 # 017 integration fixes: bolt segmentation stability + seam sliver
 
-Status: IN_PROGRESS
+Status: DONE (merged into develop, session 3). Reached 29/30 = 97% zero-contamination; fresh Opus review APPROVE (merge/absorb is safe under the singulated premise — every failure mode fails safe to MISC/REWORK/miss, no contamination path). A server restart interrupted the worker at 1h39m; its WIP was recovered and it resumed to completion. The remaining bolt-on-seam xfail was root-caused here to features/bolt.py (-> task 018) and then seam._repair (-> parked on hardware-pending).
 Dependencies: 011 (surfaced by its end-to-end tests)
 Branch: `task/017-integration-fixes` (from `develop`)
 

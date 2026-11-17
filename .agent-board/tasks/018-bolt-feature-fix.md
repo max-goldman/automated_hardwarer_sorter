@@ -1,6 +1,6 @@
 # 018 bolt feature fix: head_length_in robustness + axis-aligned bolt
 
-Status: IN_PROGRESS
+Status: DONE (merged into develop, session 3). head_length_in now measured from the head plateau (not below[0]); the previously-missed bolt (256.8 deg) reads 0.264 and classifies -> 30-part is 30/30, zero contamination, 282 passed. No parts_library change (bolt_0375 head_length 0.249-0.264 vs range [0.17,0.29]). Axis-aligned bolts already handled by the minAreaRect w<h swap. The bolt-on-seam xfail is NOT a feature bug — it is seam._repair fusing the bolt with the stitch strip; accepted as safe REWORK (user decision) and parked on hardware-pending.
 Dependencies: 017 (merged), 007 (the features module), 011 (the e2e test)
 Branch: `task/018-bolt-feature-fix` (from `develop`)
 
