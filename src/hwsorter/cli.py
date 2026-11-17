@@ -267,6 +267,10 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     from .session import open_source
 
     cfg = load_config(args.config)
+    if args.compare:  # re-run and diff the decisions against a previous log
+        from .bench import cmd_replay_compare
+
+        return cmd_replay_compare(args, cfg, str(resolve_recording(cfg, args.recording)))
     if args.pipeline:  # the identical pipeline, MockSerialAdapter + ManualClock
         spec = str(resolve_recording(cfg, args.recording))
         return _run_pipeline(cfg, spec, fast=True, mock=True, decision_log=args.decision_log)
@@ -301,6 +305,12 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         "note: the vision pipeline is added in milestone 2; for now replay verifies the recording."
     )
     return 0
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    from .bench import cmd_bench
+
+    return cmd_bench(args, load_config(args.config))
 
 
 def _cmd_recordings(args: argparse.Namespace) -> int:
@@ -486,7 +496,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the full vision pipeline (MockSerialAdapter, ManualClock) instead of just reading",
     )
     p.add_argument("--decision-log", help="decision log path for --pipeline (crops go beside it)")
+    p.add_argument(
+        "--compare",
+        metavar="DECISION_LOG",
+        help="run the pipeline and diff its decisions against this log (timings ignored); "
+        "exit 1 on any mismatch (the Mac-vs-Dell check)",
+    )
     p.set_defaults(func=_cmd_replay)
+
+    p = sub.add_parser(
+        "bench",
+        help="full-speed replay with per-stage timings vs the 8.3 ms/frame budget "
+        "(dev-box numbers do not count for acceptance)",
+    )
+    p.add_argument("recording", nargs="?", help='recording name or path, or "synthetic"')
+    p.add_argument(
+        "--compare-strides",
+        action="store_true",
+        help="accuracy guard: frame_stride 1 vs 2 and max_feature_frames 10 vs 20 on a synthetic run",
+    )
+    p.add_argument("--parts", type=_min_one, default=60, help="--compare-strides: part count")
+    p.set_defaults(func=_cmd_bench)
 
     p = sub.add_parser("run", help="run the sorting pipeline on a source")
     p.add_argument(
