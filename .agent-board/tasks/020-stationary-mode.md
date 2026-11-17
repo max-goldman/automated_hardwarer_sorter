@@ -1,6 +1,6 @@
 # 020 stationary-belt mode for `sorter run`
 
-Status: IN_PROGRESS (review round 2)
+Status: DONE (merged)
 Dependencies: none (M2/M3 merged)
 Branch: `task/020-stationary-mode` (from `develop`)
 Reviewer: Opus (tracker/pipeline/decision semantics).
@@ -35,3 +35,7 @@ Round 1 (fresh Opus): CHANGES REQUIRED. Merge with develop: README conflict only
 Required: (1) swap-before-measure contamination: track.py:345-358 reappear/IoU check only after lock; an unmeasured track that reappears after > _REAPPEAR_S or a hold must finish or reset its vectors; add a hand-swap-before-measure test. (2) superseded decisions double-counted by grade (grade.py:97) and report (metrics.py:279); session_log.group_of returns the stale group: mark supersession and use the latest group per part; test with pair-then-removal.
 Orchestrator also requires: post-hand settle period before deciding; config cross-checks (move_tol_in < relocate_in < track.gate_in, give_up_s >= settle_s, missed_s > 0); fix the 0.35 vs 0.6 in^2 comment mismatch.
 Accepted deviation: touching parts form one blob decided as one part (MISC/UNRESOLVED, safe) — same open question as the moving-mode stacked-parts gap (board, session 4).
+
+Round 2 worker: c5f28a2, pytest exit=0, ruff/format exit=0. Round 2 (fresh Opus): CHANGES REQUIRED — swap test passed even with the fix reverted (A was already measured); README still said superseded decisions are graded. Fast-swap (<0.15 s under a hand) hole found.
+Round 3 worker: f58a35c. Swap test reworked (A unmeasured when covered) + new fast-swap test via `held_unseen`; revert proofs shown (both fail without their rule; each covers a different rule). Docs fixed; Known limits list moved-part overcount and touching-parts-as-one-blob. pytest exit=0, ruff/format exit=0, stationary synthetic run exit=0.
+Round 3 review: orchestrator (small diff: track.py +9/-3, tests, docs) — sound. Merged; verified on develop below.

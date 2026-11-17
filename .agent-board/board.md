@@ -124,7 +124,7 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | Task | Status | Notes |
 | --- | --- | --- |
 | 019 `sorter measure` | DONE, merged | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
-| 020 stationary-belt mode | IN_REVIEW (Opus) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
+| 020 stationary-belt mode | DONE, merged (3 rounds) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
 | 021 cross-machine compare | DONE, merged |
 | 022 test isolation + measure polish | DONE, merged | Tests must ignore `config/local.toml` (this Mac has exposure_ms=8.0, which broke 2 golden CLI tests after the 021 merge). Plus 019 optional notes. | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
 
