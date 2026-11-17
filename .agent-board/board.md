@@ -42,6 +42,7 @@ No build step (pure Python, hatchling). Tests must run headless (Qt tests use of
 - `PipelineSnapshot` (the GUI view of live state) is owned by task 011 in `pipeline.py`, not contracts.py. Task 014 consumes it.
 - `cli.py` is shared by 011, 012, 013, 015, 016: put each subcommand's implementation in its own module and add only a small registration hook in cli.py, to keep merges trivial.
 - Board/worktree: new worktrees start from `main`'s commit, so workers must `git checkout -b task/NNN-slug develop` first.
+- **Contract amendment (session 3, orchestrator):** `segment(prepared, cfg, mapper: PlaneMapper | None = None)` — the `mapper` third parameter is blessed. The pipeline (011) MUST pass a real mapper; `None` is only a degenerate fallback (the min-area gate drops to an 8 px floor). This supersedes the bare `segment(p, cfg)` form written in contracts-spec.md.
 
 ## API contracts: key invariants (full list in contracts-spec.md)
 1. Pixels are full-image (x right, y down). Parts travel +x.
@@ -87,6 +88,17 @@ The session ended when the account hit its 5-hour usage limit. The agents below 
 Worktrees still on disk under `.claude/worktrees/` (one per open branch above). Remove each with `git worktree remove` after its branch merges. Branches are the source of truth.
 
 **Processing budget: ADOPTED** (the user agreed on 2026-11-17 that ~10 or fewer frames per part is fine; the numbers were left to the orchestrator). See `<REPO_ROOT>/.agent-board/budget-proposal.md`: frame_stride 2, feature_stride 3, max_feature_frames 10, two-stage segmentation. Task 002b adds the keys and must land before the 004 rework and 011. Task 015 guards accuracy (stride 1 vs 2).
+
+## Session 3 progress (2026-11-17, Linux x86_64, 2 cores, no camera)
+Orchestrator: Opus 4.8. **Process adaptation this session:** the harness denied built-in subagent worktree isolation, so subagents (workers + reviewers) run in MANUAL git worktrees under `/home/claude/worktrees/<task>` and report their verification output back to the orchestrator in their final message; the orchestrator owns ALL `.agent-board/` writes on `develop` and performs all merges, to avoid cross-worktree write hazards. Workers rebase their branch onto `develop` before working. Commit trailers use `Co-Authored-By: Claude Opus 4.8`.
+
+Done this session (in order):
+- **Timing-test robustness** (develop): `test_monotonic_clock_sleep_accuracy` and `test_replay_realtime_pacing` rewritten best-of-N so their wall-clock bounds don't flake under parallel-agent CPU load. Test-only, no behaviour change. (These flake on this shared 2-core box but not in isolation.)
+- **002b budget config keys:** DONE, merged `--no-ff`. The 6 ADOPTED keys + a SorterConfig cross-field check (`max_feature_frames >= classify.min_frames` and `>= features.min_valid_frames`) + tests. `develop` at 95 tests after merge.
+- **010 scheduler:** DONE, merged `--no-ff`. Jitter test made opt-in (`HWSORTER_RUN_JITTER`); the scheduler fire loop is now guarded (logging.exception, thread survives). Session-2 review round-1 blocking item satisfied; the orchestrator self-reviewed the small diff (sound) in place of a full round-2.
+- **004 segmentation:** fresh Opus review = APPROVE (no correctness/contract bugs; 6 parts→1 blob, shadows/specks rejected, facets don't split). Measured ~16 ms/frame (full-frame-bound) vs ~3 ms target. Budget rework IN PROGRESS (two-stage coarse-then-crop, label LUT, single-pass `inv_flat` preprocess, coarse_scale 1-vs-2 equivalence test). `segment()` mapper param blessed (see Architecture decisions).
+
+Live status: 002b DONE·merged | 010 DONE·merged | 004 REWORK in progress (functional APPROVE) | 005 worker running (verify+tests) | 007 review running | 008 TODO (needs 007's feature_names) | 011–016 TODO.
 
 ## Hardware and camera (session 3 onward)
 - **Session 3+ runs on a different machine with NO camera** and no access to this Mac's recordings (`recordings/` is gitignored). Everything must be built and verified with synthetic scenes, generated recordings and unit tests. No task may need the camera, the rig or a real recording to pass.
