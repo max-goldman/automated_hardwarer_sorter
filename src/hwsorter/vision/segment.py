@@ -30,7 +30,6 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from ..calibration.flatfield import apply_flatfield
 from ..calibration.store import PlaneMapper, RoiCalibration
 from ..config import SegmentConfig
 from ..contracts import Blob, Prepared
@@ -51,18 +50,24 @@ class Preprocessor:
         self.roi = roi
         self.cfg = cfg
         self._gain: float | None = None
+        # One multiply per frame instead of two divides.
+        self._inv_flat = (1.0 / flat).astype(np.float32) if flat is not None else None
 
     def apply(self, frame: Frame) -> Prepared:
         img = frame.image
         h, w = img.shape
-        flat = self.flat if self.flat is not None else np.ones((h, w), np.float32)
-        norm = apply_flatfield(img, flat)
+        if self._inv_flat is None:  # no flat-field: constant belt level, built once
+            self._inv_flat = np.ones((h, w), np.float32)
+        inv_flat = self._inv_flat
         r = self.roi
         top, bottom = max(r.top, 0), min(r.bottom, h)
         left, right = max(r.left, 0), min(r.right, w)
         ch, cw = bottom - top, right - left
-        centre = norm[top + ch // 4 : bottom - ch // 4, left + cw // 4 : right - cw // 4]
-        measured = float(np.percentile(centre[::2, ::2], 75)) if centre.size else 1.0
+        cy0, cy1 = top + ch // 4, bottom - ch // 4
+        cx0, cx1 = left + cw // 4, right - cw // 4
+        # Gain is measured on the (small) ROI centre only, before the full-frame multiply.
+        centre = img[cy0:cy1:2, cx0:cx1:2].astype(np.float32) * inv_flat[cy0:cy1:2, cx0:cx1:2]
+        measured = float(np.percentile(centre, 75)) if centre.size else 1.0
         if self._gain is None:
             self._gain = max(measured, 1e-6)
         # Slow tracker for gradual lighting drift (steady lighting is assumed; flicker is
@@ -70,13 +75,13 @@ class Preprocessor:
         if abs(measured / self._gain - 1.0) < _OUTLIER_GAIN:
             self._gain += self.cfg.gain_alpha * (measured - self._gain)
         gain = self._gain
-        out = norm / np.float32(gain)
+        out = cv2.multiply(img, inv_flat, dtype=cv2.CV_32F, scale=1.0 / gain)
         # Outside the ROI there is no belt to compare with: call it clean belt.
         out[:top] = 1.0
         out[bottom:] = 1.0
         out[:, :left] = 1.0
         out[:, right:] = 1.0
-        return Prepared(frame.seq, frame.t_capture_ns, out.astype(np.float32), r, gain)
+        return Prepared(frame.seq, frame.t_capture_ns, out, r, gain)
 
 
 def _fill_enclosed(mask: np.ndarray, gap_px: int = 9) -> np.ndarray:
@@ -99,8 +104,10 @@ def _fill_enclosed(mask: np.ndarray, gap_px: int = 9) -> np.ndarray:
     # really is sealed; closing pixels in outline notches (thread valleys) are dropped.
     bridge = ((big > 0) & (mask == 0)) | holes
     _, lab = cv2.connectedComponents(bridge.astype(np.uint8), connectivity=8)
-    keep = np.unique(lab[holes])
-    sealed = np.isin(lab, keep[keep > 0])
+    lut = np.zeros(int(lab.max()) + 1, bool)
+    lut[lab[holes]] = True
+    lut[0] = False
+    sealed = lut[lab]
     return (mask.astype(bool) | sealed).astype(np.uint8)
 
 
@@ -157,22 +164,20 @@ def _refine(contour: np.ndarray, dev: np.ndarray, edge_threshold: float) -> np.n
     return pts + normal * offset[:, None]
 
 
-def segment(p: Prepared, cfg: SegmentConfig, mapper: PlaneMapper | None = None) -> list[Blob]:
-    """Blobs (outer silhouettes) in a prepared frame, left to right.
+def _segment_window(
+    flat: np.ndarray,
+    win: tuple[int, int, int, int],
+    roi_lim: tuple[int, int, int, int],
+    cfg: SegmentConfig,
+    min_area_px: float,
+    strip_px: float,
+) -> list[Blob]:
+    """Full-resolution segmentation of ``flat[y0:y1, x0:x1]``; blobs in full-image coords.
 
-    ``mapper`` converts ``cfg.min_area_in2`` to pixels; without it only specks under 8 px
-    are dropped (the pipeline always passes it).
+    ``roi_lim`` is (top, bottom, left, right) in full-image coordinates.
     """
-    flat = p.flat
-    h, w = flat.shape
-    r = p.roi
-    top, bottom = max(r.top, 0), min(r.bottom, h)
-    left, right = max(r.left, 0), min(r.right, w)
-    if bottom <= top or right <= left:
-        return []
-    pad = 4
-    y0, y1 = max(top - pad, 0), min(bottom + pad, h)
-    x0, x1 = max(left - pad, 0), min(right + pad, w)
+    x0, y0, x1, y1 = win
+    top, bottom, left, right = roi_lim
     sub = flat[y0:y1, x0:x1]
     sm = cv2.GaussianBlur(sub, (0, 0), cfg.subpixel_smooth_px) if cfg.subpixel_smooth_px else sub
     dev = np.abs(sm - 1.0)
@@ -180,7 +185,9 @@ def segment(p: Prepared, cfg: SegmentConfig, mapper: PlaneMapper | None = None) 
     gy = cv2.Sobel(sm, cv2.CV_32F, 0, 1, ksize=3, scale=1 / 8)
     grad = cv2.magnitude(gx, gy)
     valid = np.zeros(sub.shape, bool)
-    valid[top - y0 : bottom - y0, left - x0 : right - x0] = True
+    vt, vb = max(top - y0, 0), min(bottom - y0, y1 - y0)
+    vl, vr = max(left - x0, 0), min(right - x0, x1 - x0)
+    valid[vt:vb, vl:vr] = True
     strong = ((dev > cfg.deviation_threshold) | (grad > cfg.edge_gradient_threshold)) & valid
     mask = strong.astype(np.uint8)
     # Bright facets (as bright as the belt, on the rim of a dark head): grow into pixels
@@ -189,22 +196,16 @@ def segment(p: Prepared, cfg: SegmentConfig, mapper: PlaneMapper | None = None) 
     weak = ((sm - 1.0) > cfg.edge_threshold) & valid
     if weak.any() and mask.any():
         n_lab, lab = cv2.connectedComponents((weak | strong).astype(np.uint8), connectivity=8)
-        keep = np.unique(lab[strong])
-        grown = np.isin(lab, keep[keep > 0]) & weak
+        lut = np.zeros(n_lab, bool)
+        lut[lab[strong]] = True
+        lut[0] = False
+        grown = lut[lab] & weak
         mask = (mask | grown.astype(np.uint8)).astype(np.uint8)
-        del n_lab
     if cfg.close_kernel_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.close_kernel_px,) * 2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
     mask = _fill_enclosed(mask)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-
-    min_area_px = 8.0
-    strip_px = float(_EDGE_STRIP_FALLBACK_PX)
-    if mapper is not None:
-        px2 = _px2_per_in2(mapper, flat.shape)
-        min_area_px = max(min_area_px, cfg.min_area_in2 * px2)
-        strip_px = _EDGE_STRIP_IN * px2**0.5
 
     blobs: list[Blob] = []
     for c in contours:
@@ -239,5 +240,96 @@ def segment(p: Prepared, cfg: SegmentConfig, mapper: PlaneMapper | None = None) 
                 touches_edge=bool(bx0 <= left or bx0 + bw >= right),
             )
         )
+    return blobs
+
+
+def _merge_boxes(boxes: list[list[int]]) -> list[list[int]]:
+    """Union boxes (x0, y0, x1, y1) that overlap, until none do."""
+    boxes = [list(b) for b in boxes]
+    merged = True
+    while merged:
+        merged = False
+        out: list[list[int]] = []
+        for b in boxes:
+            for o in out:
+                if b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3]:
+                    o[0], o[1] = min(o[0], b[0]), min(o[1], b[1])
+                    o[2], o[3] = max(o[2], b[2]), max(o[3], b[3])
+                    merged = True
+                    break
+            else:
+                out.append(b)
+        boxes = out
+    return boxes
+
+
+def _coarse_crops(
+    flat: np.ndarray,
+    win: tuple[int, int, int, int],
+    cfg: SegmentConfig,
+    min_area_px: float,
+    strip_px: float,
+) -> list[tuple[int, int, int, int]]:
+    """Half-resolution detection of candidate part regions; padded full-res crop boxes."""
+    x0, y0, x1, y1 = win
+    half = cv2.pyrDown(flat[y0:y1, x0:x1])
+    # Slightly below the full-res threshold: pyrDown averages thin detail toward belt. Much
+    # lower would pick up belt-edge shading strips, which are skipped below anyway.
+    cmask = (cv2.absdiff(half, 1.0) > 0.8 * cfg.deviation_threshold).astype(np.uint8)
+    cmask = cv2.dilate(cmask, np.ones((3, 3), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(cmask, connectivity=8)
+    min_half = max(2.0, min_area_px / 16.0)
+    pad = cfg.crop_pad_px
+    boxes: list[list[int]] = []
+    for i in range(1, n):
+        bx, by, bw, bh, area = (int(v) for v in stats[i])
+        if area < min_half:
+            continue
+        if 2 * bh <= strip_px + 4 and (by <= 2 or by + bh >= half.shape[0] - 2):
+            continue  # belt-edge shading strip hugging the ROI top/bottom
+        boxes.append(
+            [
+                max(x0 + 2 * bx - pad, x0),
+                max(y0 + 2 * by - pad, y0),
+                min(x0 + 2 * (bx + bw) + pad, x1),
+                min(y0 + 2 * (by + bh) + pad, y1),
+            ]
+        )
+    return [(b[0], b[1], b[2], b[3]) for b in _merge_boxes(boxes)]
+
+
+def segment(p: Prepared, cfg: SegmentConfig, mapper: PlaneMapper | None = None) -> list[Blob]:
+    """Blobs (outer silhouettes) in a prepared frame, left to right.
+
+    ``mapper`` converts ``cfg.min_area_in2`` to pixels; without it only specks under 8 px
+    are dropped (the pipeline always passes it). With ``cfg.coarse_scale == 2`` a half-res
+    pass finds candidate regions and the full-res code runs only on their padded crops;
+    ``coarse_scale == 1`` runs it on the whole ROI (the reference path).
+    """
+    flat = p.flat
+    h, w = flat.shape
+    r = p.roi
+    top, bottom = max(r.top, 0), min(r.bottom, h)
+    left, right = max(r.left, 0), min(r.right, w)
+    if bottom <= top or right <= left:
+        return []
+    pad = 4
+    win = (max(left - pad, 0), max(top - pad, 0), min(right + pad, w), min(bottom + pad, h))
+
+    min_area_px = 8.0
+    strip_px = float(_EDGE_STRIP_FALLBACK_PX)
+    if mapper is not None:
+        px2 = _px2_per_in2(mapper, flat.shape)
+        min_area_px = max(min_area_px, cfg.min_area_in2 * px2)
+        strip_px = _EDGE_STRIP_IN * px2**0.5
+
+    roi_lim = (top, bottom, left, right)
+    if cfg.coarse_scale == 1:
+        wins = [win]
+    else:
+        wins = _coarse_crops(flat, win, cfg, min_area_px, strip_px)
+    blobs: list[Blob] = []
+    for wn in wins:
+        blobs.extend(_segment_window(flat, wn, roi_lim, cfg, min_area_px, strip_px))
     blobs.sort(key=lambda b: b.mask_bbox_px[0])
     return blobs

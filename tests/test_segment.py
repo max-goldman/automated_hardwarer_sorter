@@ -128,18 +128,59 @@ def test_gain_tracker_follows_slow_drift(rig):
     assert np.median(centre) == pytest.approx(1.0, abs=0.02)
 
 
+def _match(b1, b2):
+    """Pair blobs by nearest centroid; returns (area_rel_err, centroid_dist) per pair."""
+    c1 = [b.contour_px.mean(axis=0) for b in b1]
+    c2 = [b.contour_px.mean(axis=0) for b in b2]
+    out = []
+    for i, c in enumerate(c1):
+        j = int(np.argmin([np.linalg.norm(c - d) for d in c2]))
+        out.append((abs(b1[i].area_px / b2[j].area_px - 1.0), float(np.linalg.norm(c - c2[j]))))
+    return out
+
+
+EQUIV_SCENES = {
+    "two_parts": ([PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0375", 0.1, 2.0)], 0.5),
+    "three_parts": (
+        [
+            PartSpec("bolt_025", 0.0, 1.0, 30.0),
+            PartSpec("nut_0375", 0.1, 2.0),
+            PartSpec("washer_025", 0.5, 1.5),
+        ],
+        0.8,
+    ),
+    "near_edge": ([PartSpec("washer_0375", 0.0, 1.0), PartSpec("bolt_025", 0.3, 1.8)], 0.02),
+}
+
+
+@pytest.mark.parametrize("name", list(EQUIV_SCENES))
+def test_coarse_scale_matches_full_frame(rig, name):
+    parts, t = EQUIV_SCENES[name]
+    ref, _ = run(rig, parts, t, cfg=SegmentConfig(coarse_scale=1))
+    fast, _ = run(rig, parts, t, cfg=SegmentConfig(coarse_scale=2))
+    assert len(ref) >= 1
+    assert len(fast) == len(ref)
+    assert [b.touches_edge for b in fast] == [b.touches_edge for b in ref]
+    for area_err, dist in _match(fast, ref):
+        assert area_err < 0.02
+        assert dist < 1.0
+
+
 def test_performance_report(rig):
     scene, flat, roi, mapper = rig
-    cfg = SegmentConfig()
     r = SyntheticRenderer(
         scene, [PartSpec("bolt_025", 0.0, 1.0, 30.0), PartSpec("nut_0375", 0.1, 2.0)]
     )
     img = r.render(0.5, 0)
-    pre = Preprocessor(flat, roi, cfg)
     n = 30
-    t0 = time.perf_counter()
-    for k in range(n):
-        segment(pre.apply(Frame(k, k, k, img)), cfg, mapper)
-    ms = (time.perf_counter() - t0) / n * 1000
-    print(f"segment mean ms/frame: {ms:.2f}")
-    assert ms < 100
+    for cs in (1, 2):
+        cfg = SegmentConfig(coarse_scale=cs)
+        pre = Preprocessor(flat, roi, cfg)
+        for k in range(5):
+            segment(pre.apply(Frame(k, k, k, img)), cfg, mapper)
+        t0 = time.perf_counter()
+        for k in range(n):
+            segment(pre.apply(Frame(k, k, k, img)), cfg, mapper)
+        ms = (time.perf_counter() - t0) / n * 1000
+        print(f"coarse_scale={cs} mean ms/frame: {ms:.2f}")
+        assert ms < 50  # gross-regression guard only; the strict budget gate is the bench
