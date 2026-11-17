@@ -171,10 +171,43 @@ def _cmd_recordings(args: argparse.Namespace) -> int:
     return 0
 
 
+def _calibrate_flatfield(cfg, args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .calibration import calibration_path, load_calibration, save_calibration
+    from .calibration.flatfield import build_flatfield
+    from .recording import RecordingReader
+    from .session import recordings_dir
+
+    path = Path(args.recording)
+    if not path.is_absolute() and not path.exists():
+        path = recordings_dir(cfg) / args.recording
+    with RecordingReader(path) as reader:
+        if len(reader) == 0:
+            raise ValueError(f"recording {path} has no frames")
+        step = max(1, len(reader) // args.max_frames)
+        frames = [frame.image for i, frame in enumerate(reader) if i % step == 0]
+    flat = build_flatfield(frames, max_frames=args.max_frames)
+    cal = load_calibration()
+    target = calibration_path().with_suffix(".flatfield.npy")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.save(target, flat)
+    cal.flatfield_file = target.name
+    save_calibration(cal)
+    print(
+        f"flat-field from {len(frames)} frames of {path.name}: "
+        f"min {flat.min():.0f}, max {flat.max():.0f}, mean {flat.mean():.0f} (gray levels)"
+    )
+    print(f"saved {target} and recorded it in {calibration_path()}")
+    return 0
+
+
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     from .calibration import calibration_path, load_calibration
 
     cfg = load_config(args.config)
+    if args.action == "flatfield":
+        return _calibrate_flatfield(cfg, args)
     if args.action == "target":
         from .calibration.target import board_size_mm, write_target_pdf
 
@@ -248,12 +281,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "calibrate", help="calibration helpers (the interactive tools are in the GUI)"
     )
-    p.add_argument(
-        "action",
-        choices=["target", "show"],
-        help='"target" writes the printable target PDF; "show" prints saved calibration',
-    )
-    p.add_argument("--out", default="calibration-target.pdf")
+    csub = p.add_subparsers(dest="action", required=True)
+    q = csub.add_parser("target", help="write the printable calibration target PDF")
+    q.add_argument("--out", default="calibration-target.pdf")
+    csub.add_parser("show", help="print the saved calibration")
+    q = csub.add_parser("flatfield", help="build the illumination map from an empty-belt recording")
+    q.add_argument("recording", help="recording name or path (empty, moving belt)")
+    q.add_argument("--max-frames", type=int, default=80, help="frames used for the median")
     p.set_defaults(func=_cmd_calibrate)
     return parser
 
