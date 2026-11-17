@@ -408,6 +408,18 @@ def _cmd_gui(args: argparse.Namespace) -> int:
     return run(cfg, source)
 
 
+def _cmd_grade(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .config import project_root
+    from .gui.grading import run_grading
+
+    path = Path(args.session)
+    if not path.exists() and (project_root() / "sessions" / args.session).exists():
+        path = project_root() / "sessions" / args.session
+    return run_grading(path, args.labels)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sorter", description="Hardware sorter vision program")
     parser.add_argument(
@@ -461,6 +473,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parts", type=_min_one, help="synthetic: number of parts (default 10)")
     p.add_argument("--decision-log", help="decision log path (default: under sessions/)")
     p.set_defaults(func=_cmd_run)
+
+    p = sub.add_parser(
+        "grade", help="label the parts of a session (live or from replay --pipeline) for grading"
+    )
+    p.add_argument("session", help="session folder (or name under sessions/) or decision-log file")
+    p.add_argument("--labels", help="label store path (default: <session>/labels.jsonl)")
+    p.set_defaults(func=_cmd_grade)
 
     p = sub.add_parser("recordings", help="list recordings")
     p.set_defaults(func=_cmd_recordings)
