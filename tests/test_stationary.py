@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from fakes import make_part_result
 
 from hwsorter.cli import main
 from hwsorter.clock import ManualClock
@@ -18,8 +19,6 @@ from hwsorter.frames import Frame
 from hwsorter.output import MockSerialAdapter
 from hwsorter.pipeline import Pipeline, synthetic_calibration
 from hwsorter.synthetic import HandSpec, PartSpec, SceneConfig, SyntheticRenderer, still_scene
-
-from fakes import make_part_result
 
 START_NS = 1_000_000_000
 SCENE = SceneConfig(speed_in_s=0.0)

@@ -167,8 +167,8 @@ same, and a moving session log omits the new config keys so it stays byte-identi
 - **Stationary mode.** Two parts that touch are one silhouette and are decided as one part (they
   usually come out UNRESOLVED or MISC, not REWORK); keep them apart by a visible gap. Strong
   lighting flicker (about 50% dimmed frames) degrades the measurement; there is no flicker
-  handling by decision, the fix is in hardware. A part measured while a hand was only partly in
-  view could be affected; the hand rule needs the arm to touch the image edge.
+  handling by decision, the fix is in hardware. The hand rule needs the arm to touch the image or
+  belt edge.
 
 - **Synthetic-only validation.** This session had no camera. Everything was built and tested
   with `synthetic.py` scenes, generated recordings and unit tests. Library ranges come from
