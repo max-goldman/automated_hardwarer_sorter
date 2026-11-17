@@ -35,11 +35,24 @@ from ..config import SegmentConfig
 from ..contracts import Blob, Prepared
 from ..frames import Frame
 
-_SEARCH_PX = 1.5  # sub-pixel search half-range along the normal (mask edge is within ~1 px)
+_SEARCH_PX = 2.5  # sub-pixel search half-range along the normal (the close can leave the mask
+# edge ~2 px out on a serrated bolt thread; a wider search pulls it back to the true edge)
 _STEP_PX = 0.25
 _EDGE_STRIP_IN = 0.15  # belt-edge shading strips at the ROI top/bottom are thinner than this
 _EDGE_STRIP_FALLBACK_PX = 12  # same, when no mapper gives the scale
 _OUTLIER_GAIN = 0.4  # ignore gain updates from frames this far from the tracked gain
+# Dark-head facet capture (see the facet grow in _segment_window). A bright facet painted on a
+# dark bolt head reads just BELOW the belt (~0.96 of belt here), so the brighter-than-belt grow
+# misses it and the head silhouette flickers frame to frame. Flood a narrow band just below belt
+# -- above the darker soft-shadow halo, below the belt itself -- seeded only from pixels that
+# adjoin the deep-dark head (the dilate bridges the facet/head gradient ramp). A soft shadow ring
+# lies against a part's bright rim (not the deep-dark head) and is darker than the band, so it is
+# never captured; the belt (above the band) is excluded, so the flood cannot escape onto it.
+_FACET_BAND_LO = 0.955  # facet band lower bound (flat units, belt = 1.0); below is shadow/ramp
+_FACET_BAND_HI = 0.992  # facet band upper bound; above is belt
+_FACET_DARK_LEVEL = 0.50  # a facet is grown only where it adjoins a part this much darker than belt
+_FACET_SEED_DILATE_PX = 9  # bridges the facet/head gradient ramp between the band and the dark head
+_EDGE_BAND_FRAC = 0.12  # bright belt-edge band cleared within this fraction of the strip depth
 
 
 class Preprocessor:
@@ -84,7 +97,10 @@ class Preprocessor:
         return Prepared(frame.seq, frame.t_capture_ns, out, r, gain)
 
 
-def _fill_enclosed(mask: np.ndarray, gap_px: int = 9) -> np.ndarray:
+_FILL_GAP_PX = 9  # hole-wall gap bridged when filling enclosed regions (bores, shank highlights)
+
+
+def _fill_enclosed(mask: np.ndarray, gap_px: int = _FILL_GAP_PX) -> np.ndarray:
     """Fill holes, including holes whose wall has a gap narrower than ``gap_px``.
 
     Interior regions (washer bores, bright shank highlights between dark edges) can leak
@@ -201,6 +217,39 @@ def _segment_window(
         lut[0] = False
         grown = lut[lab] & weak
         mask = (mask | grown.astype(np.uint8)).astype(np.uint8)
+    # Below-belt facet grow (see the module constants): a bright facet on a dark head reads just
+    # below the belt, so the grow above misses it. Flood a narrow band just below belt, seeded
+    # only from band pixels that adjoin the deep-dark head, so the head silhouette is captured
+    # whole every frame without pulling in the soft-shadow halo or leaking onto the belt.
+    facet = (sm > _FACET_BAND_LO) & (sm < _FACET_BAND_HI) & valid & ~strong
+    # Keep the facet grow off the belt-edge shading strips at the ROI top/bottom: they sit in the
+    # same below-belt band, so without this an edge-near head floods down the strip and the part
+    # merges with it into one tall blob (the thin-strip drop below never fires on the merged blob).
+    rows_full = np.arange(y0, y1, dtype=np.float32)[:, None]
+    in_strip = (rows_full < top + strip_px) | (rows_full >= bottom - strip_px)
+    facet &= ~in_strip
+    deep = (strong & (sm < _FACET_DARK_LEVEL)).astype(np.uint8)
+    if facet.any() and deep.any():
+        ksz = _FACET_SEED_DILATE_PX
+        near = cv2.dilate(deep, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksz, ksz)))
+        seed = facet & (near > 0)
+        if seed.any():
+            n_lab, lab = cv2.connectedComponents(facet.astype(np.uint8), connectivity=8)
+            lut = np.zeros(n_lab, bool)
+            lut[lab[seed]] = True
+            lut[0] = False
+            mask = (mask | lut[lab].astype(np.uint8)).astype(np.uint8)
+    # Clear the belt-edge highlight band at the ROI top/bottom before closing and filling: the
+    # flat-field leaves a thin brighter-than-belt sliver right at each belt edge, and a part whose
+    # silhouette reaches the edge (a bolt lying head-to-edge) otherwise fuses with this full-width
+    # band into one oversized blob -- the thin-strip drop below never fires on the merged blob, so
+    # its min-area rectangle gains the band's width and it misclassifies. Part silhouettes read at
+    # or below belt, so clearing only the brighter-than-belt pixels in a thin margin at the very
+    # boundary drops the band and leaves the part; the dark edge-shading band is still handled by
+    # the thin-strip drop after contouring. The margin stays narrow so it clears just the band.
+    band_px = max(round(strip_px * _EDGE_BAND_FRAC), cfg.close_kernel_px + 2)
+    near_edge = (rows_full < top + band_px) | (rows_full >= bottom - band_px)
+    mask[near_edge & (sm > 1.0 + cfg.edge_threshold)] = 0
     if cfg.close_kernel_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.close_kernel_px,) * 2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
