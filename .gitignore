@@ -14,3 +14,4 @@ config/calibration/
 
 # Orchestration board (local only)
 .agent-board/
+.claude/
