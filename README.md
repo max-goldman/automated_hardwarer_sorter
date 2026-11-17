@@ -71,6 +71,23 @@ folder name from `sorter recordings`, or the short name you gave `record` (folde
 4. `sorter calibrate show` lists what is calibrated and what is missing, including the
    flat-field file and whether it exists.
 
+### Stationary-belt mode
+
+Live tests start with the belt stopped and parts placed by hand. `sorter run --stationary` (or
+`belt.mode = "stationary"` in `config/local.toml`) switches the pipeline to that: speed is 0,
+nothing is timed, and each part is decided once it has sat still long enough
+(`stationary.settle_s`). The decision is printed at once (`DECISION group 3 [#3,#4] -> rework`)
+and logged as a `group` record with `"stationary": true`. There are no `send` records. A hand
+or arm in view (a large blob touching the image edge) is ignored and freezes decisions until it
+leaves. A part that is moved is measured again as a new part; a part taken away re-decides its
+group. `sorter grade` and `sorter report` work on the session as for a moving one (a superseded
+group decision is graded too: they grade decisions, and `sent_output` is empty).
+
+```
+uv run sorter run --source camera --stationary --headless      # live, belt stopped
+uv run sorter run --source synthetic --headless --fast --stationary   # demo: parts, a hand, a pair
+```
+
 ### Milestones 2 and 3 commands
 
 The vision pipeline: segment, seam, track, features, classify, decide, schedule. The design,
@@ -103,7 +120,8 @@ uv run sorter derive-ranges out
 Options (from each command's `--help`):
 
 - `run`: `--source camera|synthetic|<recording>` (default `camera`), `--headless`,
-  `--realtime` or `--fast`, `--seconds`, `--parts` (synthetic part count), `--decision-log`.
+  `--realtime` or `--fast`, `--seconds`, `--parts` (synthetic part count), `--decision-log`,
+  `--stationary` (belt stopped, parts placed by hand; see below).
 - `replay`: `--realtime`, `--pipeline`, `--decision-log` (with `--pipeline`), `--compare LOG`.
 - `grade`: `--labels` (default `<session>/labels.jsonl`). `session` is a folder, a name under
   `sessions/`, or a decision-log file.

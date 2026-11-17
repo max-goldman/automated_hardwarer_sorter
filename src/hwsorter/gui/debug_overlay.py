@@ -40,7 +40,10 @@ def track_label(track: TrackView) -> str:
     verdict = ""
     if track.verdict is not None and track.verdict is not Verdict.CONFIDENT:
         verdict = f" [{track.verdict.value}]"
-    return f"#{track.track_id} {out}{score}{verdict}"
+    group = ""
+    if track.group_output is not None:  # stationary: the standing decision for this part's group
+        group = f" => {track.group_output.value}"
+    return f"#{track.track_id} {out}{score}{verdict}{group}"
 
 
 class DebugOverlay:
@@ -98,6 +101,8 @@ class DebugOverlay:
             f"dropped {snap.n_dropped}  skipped {snap.n_skipped}",
             f"tracks {len(snap.tracks)}  parts {snap.n_parts}  groups {snap.n_groups}",
         ]
+        if snap.hand:
+            lines.append("HAND in view: no decisions")
         lines += [f"send g{g} -> {out} in {s:4.2f} s" for g, out, s in self.countdowns()]
         return lines
 

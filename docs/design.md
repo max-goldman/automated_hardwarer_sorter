@@ -128,7 +128,47 @@ Parts are in view for 60 to 85 frames but about 10 are enough. Adopted settings
   max_feature_frames 10 vs 20 on a deterministic synthetic stream (with near-miss out-of-scope
   parts); accuracy and contamination must not get worse under the adopted settings.
 
+## Stationary-belt mode
+
+`belt.mode = "stationary"` (`sorter run --stationary`) is for live tests with the belt off and
+parts placed by hand. Moving mode is unchanged; the defaults and every moving code path are the
+same, and a moving session log omits the new config keys so it stays byte-identical.
+
+- **Speed.** v = 0 everywhere: belt frame = image frame, nothing is scheduled, no send records.
+- **Validity** (`Tracker`, `stationary` set): an observation is valid when the part is fully in
+  view, not merged, its centre moved less than `stationary.move_tol_in` since the last
+  observation and its area is stable (`track.max_area_change`). No belt-speed test. A track
+  finishes only when its part is removed (unseen for `stationary.missed_s` with no hand in
+  view), never by leaving the view; only the last 60 observations are kept.
+- **Hand / arm.** A blob that touches the image or belt edge and is larger than
+  `stationary.max_part_area_in2` (default 1.0 in^2; the largest in-scope part, a bolt, is about
+  0.35 in^2 and a hand is tens) is dropped before tracking: never a track, never a part. While
+  one is in view the tracks it may cover are held (not finished) and no decision is made.
+- **Measured.** A track is fused and classified once, when it has `pipeline.max_feature_frames`
+  features (or `classify.min_frames` after `stationary.settle_s`) and its last `track.settle_frames`
+  observations are valid. It is then locked and takes no more features: its class cannot flap. A
+  track that never measures cleanly is measured as it is after `stationary.give_up_s`.
+- **Decision.** `StationaryDecider` groups the measured parts present with the same gap rule as
+  `Grouper` (`belt.rework_gap_in`) and the same rule table. When no hand is in view and no track
+  is still pending, each group whose membership is new since the last decision is decided once:
+  the new `part` records, then the `group` record, are written and the adapter announces it
+  (`announce`, not `send`).
+- **Moved / removed.** A locked part seen more than `stationary.relocate_in` from where it was
+  measured, or back after a gap of 0.15 s with a different silhouette (IoU below 0.9), or whose
+  area changed by more than twice `track.max_area_change` for `track.settle_frames` sightings,
+  finishes: the blob starts a new track and is measured again. A part removed for `missed_s`
+  finishes the same way. Either way its group is re-decided (new `group_id`).
+- **Logs.** `part` records are as in moving mode. `group` records carry `"stationary": true`;
+  `x_lead_in_at_ref` is the part's image position. Grading and the report read part records and
+  crops as before; `LoggedGroup.sent_output` is `None`.
+
 ## Known limits
+
+- **Stationary mode.** Two parts that touch are one silhouette and are decided as one part (they
+  usually come out UNRESOLVED or MISC, not REWORK); keep them apart by a visible gap. Strong
+  lighting flicker (about 50% dimmed frames) degrades the measurement; there is no flicker
+  handling by decision, the fix is in hardware. A part measured while a hand was only partly in
+  view could be affected; the hand rule needs the arm to touch the image edge.
 
 - **Synthetic-only validation.** This session had no camera. Everything was built and tested
   with `synthetic.py` scenes, generated recordings and unit tests. Library ranges come from
