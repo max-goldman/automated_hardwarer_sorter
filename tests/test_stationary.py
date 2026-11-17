@@ -156,15 +156,27 @@ def test_pair_then_removal_redecides_the_remaining_part(rig):
 
 
 def test_swap_before_measure_is_decided_as_the_new_part(rig):
-    # A is taken away under a hand before it settles; B is put down in its place. B must be
-    # measured on its own (a fresh track), never fused with A's early frames.
+    # A is covered by a hand while still UNMEASURED (placed 0.40 s, hand on 0.45 s, well short of
+    # settle_s), taken away, and B put down in its place. B must get a fresh track.
     parts = [
-        still("bolt_025", 0.4, 1.75, off=0.9),
-        still("washer_0375", 1.0, 1.75),
+        still("bolt_025", 0.40, 1.75, off=0.8),
+        still("washer_0375", 0.85, 1.75),
     ]
-    run = run_still(rig, parts, [HandSpec(0.7, 1.7, 1.75, y_in=1.2)], seconds=4.0)
+    run = run_still(rig, parts, [HandSpec(0.45, 1.0, 1.75, y_in=1.2)], seconds=3.5)
     assert run.groups() == [([2], "washer_0375")]
-    assert [p["part_class"] for p in run.records("part")] == ["washer_0375"]
+    (part,) = run.records("part")
+    assert part["track_id"] == 2 and part["part_class"] == "washer_0375"
+
+
+def test_fast_swap_under_a_short_hand_is_a_new_track(rig):
+    # The hand is out of view for less than the reappear gap, but A was unseen while it was in.
+    parts = [
+        still("bolt_025", 0.40, 1.75, off=0.62),
+        still("washer_0375", 0.66, 1.75),
+    ]
+    run = run_still(rig, parts, [HandSpec(0.55, 0.64, 1.75, y_in=1.2)], seconds=3.5)
+    assert run.groups() == [([2], "washer_0375")]
+    assert run.records("part")[0]["track_id"] == 2
 
 
 def test_decision_waits_after_a_hand_leaves(rig):

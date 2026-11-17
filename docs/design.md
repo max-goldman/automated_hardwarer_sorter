@@ -159,13 +159,18 @@ same, and a moving session log omits the new config keys so it stays byte-identi
   finishes: the blob starts a new track and is measured again. A part removed for `missed_s`
   finishes the same way. Either way its group is re-decided (new `group_id`).
 - **Logs.** `part` records are as in moving mode. `group` records carry `"stationary": true`;
-  `x_lead_in_at_ref` is the part's image position. Grading and the report read part records and
-  crops as before; `LoggedGroup.sent_output` is `None`.
+  `x_lead_in_at_ref` is the part's image position; `supersedes` lists the earlier group ids a
+  re-decision replaces. Grading and the report read part records and crops as before;
+  `LoggedGroup.sent_output` is `None`, and superseded groups go to `SessionData.history` so only
+  the latest decision per part is graded and reported.
 
 ## Known limits
 
-- **Stationary mode.** Two parts that touch are one silhouette and are decided as one part (they
-  usually come out UNRESOLVED or MISC, not REWORK); keep them apart by a visible gap. Strong
+- **Stationary mode.** (i) A part that is MOVED gets a new track id and its old decision still
+  counts (it shows as an overcount against parts fed). (ii) Two parts that touch are one
+  silhouette and are decided as one part (they usually come out UNRESOLVED or MISC, not
+  REWORK); this is the same open question as stacked parts in moving mode. Keep parts apart by a
+  visible gap. Strong
   lighting flicker (about 50% dimmed frames) degrades the measurement; there is no flicker
   handling by decision, the fix is in hardware. The hand rule needs the arm to touch the image or
   belt edge.

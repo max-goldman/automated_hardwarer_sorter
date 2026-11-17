@@ -91,6 +91,7 @@ class _State:
     t_first_ns: int = 0
     anchor: tuple[float, float] | None = None  # stationary: where the pipeline measured the part
     displaced: bool = False  # stationary: a measured part was moved; finish it this frame
+    held_unseen: bool = False  # stationary: unseen during a frame with a hand in view
     anchor_area: float = 0.0  # stationary: the measured part's silhouette area, px
     off: int = 0  # stationary: consecutive sightings whose area no longer matches anchor_area
     anchor_contour: np.ndarray | None = None  # stationary: the measured silhouette, inches
@@ -261,6 +262,7 @@ class Tracker:
                         finished.append(t)
                 continue
             if self.st is not None:
+                s.held_unseen = s.held_unseen or hold
                 last = s.hist[-1].t_ns if s.hist else s.t_first_ns
                 gone = (t_ns - last) / NS_PER_S >= self.st.missed_s and not hold
                 if s.displaced or gone:
@@ -350,11 +352,12 @@ class Tracker:
             and s.anchor_contour is None
             and s.hist
             and not merged
-            and (d.t_ns - s.hist[-1].t_ns) / NS_PER_S >= _REAPPEAR_S
+            and (s.held_unseen or (d.t_ns - s.hist[-1].t_ns) / NS_PER_S >= _REAPPEAR_S)
         ):
-            # An unmeasured track back after a gap (a hand held it, or it was swapped meanwhile):
-            # its earlier frames may show another part, so finish it and measure afresh.
+            # An unmeasured track back after a gap, or after any frame a hand held it unseen (a
+            # quick swap): its earlier frames may show another part, so finish it and re-measure.
             s.displaced = True
+        s.held_unseen = False
         if (
             s.anchor_contour is not None
             and s.hist

@@ -80,8 +80,9 @@ nothing is timed, and each part is decided once it has sat still long enough
 and logged as a `group` record with `"stationary": true`. There are no `send` records. A hand
 or arm in view (a large blob touching the image edge) is ignored and freezes decisions until it
 leaves. A part that is moved is measured again as a new part; a part taken away re-decides its
-group. `sorter grade` and `sorter report` work on the session as for a moving one (a superseded
-group decision is graded too: they grade decisions, and `sent_output` is empty).
+group. `sorter grade` and `sorter report` work on the session as for a moving one
+(`sent_output` is empty). Superseded decisions go to history; only the latest decision per part
+is graded and reported.
 
 ```
 uv run sorter run --source camera --stationary --headless      # live, belt stopped
