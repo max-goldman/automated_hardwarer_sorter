@@ -60,3 +60,57 @@ scale_bar_mm = 50.0         # printed bar the user measures to correct printer s
 
 [gui]
 display_fps = 30
+
+[segment]
+deviation_threshold = 0.12  # |flat - 1| above this is part (flat-fielded belt is ~1.0)
+edge_threshold = 0.06       # sub-pixel edge level: |flat - 1| crossing that places the contour
+edge_gradient_threshold = 0.08  # |grad flat| per px that marks a sharp edge
+shadow_max_depth = 0.10     # soft dark regions shallower than this are shadow, not part
+gain_alpha = 0.05           # slow per-frame brightness-gain tracker rate
+subpixel_smooth_px = 0.7    # gaussian sigma before sub-pixel refinement
+min_area_in2 = 0.01         # smaller blobs are dust (square inches)
+close_kernel_px = 3         # morphological close kernel, pixels
+
+[seam]
+enabled = true
+angle_deg = 50.0            # degrees from the travel axis (+x) toward +y (image y down); as synthetic.py
+width_in = 0.2              # nominal seam band width, inches (as synthetic.py)
+angle_tol_deg = 10.0        # accepted deviation from angle_deg
+width_tol_in = 0.1          # accepted deviation from width_in
+template_frames = 30        # frames averaged to learn the seam template
+speed_window = 15           # seam sightings smoothed for the belt speed estimate
+
+[track]
+gate_in = 0.5               # max belt-frame distance to link a blob to a track (inches)
+settle_frames = 3           # frames before a track counts as settled
+max_missed_frames = 3       # frames a track may go unseen before it finishes
+speed_tolerance = 0.15      # allowed fractional deviation from belt speed
+max_area_change = 0.15      # fractional frame-to-frame area jump counts as unstable outline
+min_frames = 5              # fewer valid frames sets TrackFlag.FEW_FRAMES
+
+[features]
+elongated_min_aspect = 1.8      # length/width above which bolt-profile features are computed
+hole_bright_threshold = 0.90    # flat (part/belt) above this inside a part = see-through hole (washer ~1.0)
+hole_dark_threshold = 0.30      # flat below this inside a part = dark bore (nut ~0.21; bodies >= 0.40)
+hole_min_diameter_in = 0.08     # smaller holes are noise
+min_valid_frames = 3            # fewer valid observations cannot be fused
+radial_samples = 180            # contour radial-profile samples (hex harmonic)
+
+[classify]
+confidence_threshold = 1.0      # worst-feature score at or below this fits a class
+out_of_scope_threshold = 1.5    # best score above this is out of scope
+min_frames = 5                  # fewer fused frames can never be CONFIDENT
+library_path = "config/parts_library.yaml"  # relative to the project root
+derive_margin = 0.1            # fractional range padding when deriving ranges
+
+[scheduler]
+enabled = true
+spin_ms = 4.0               # busy-wait window before a send time
+screen_log_keep = 50        # last N sends kept for the GUI/screen log
+
+[pipeline]
+decision_log_dir = "decisions"  # relative to the session folder
+crop_dir = "crops"              # relative to the session folder
+save_crops = true
+save_full_frames = true         # full-frame reference per part, for grading
+crop_pad_in = 0.15              # padding around a part crop, inches
