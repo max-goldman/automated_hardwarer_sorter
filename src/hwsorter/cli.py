@@ -644,6 +644,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--in-place", action="store_true", help="overwrite the target if it exists")
     p.set_defaults(func=_cmd_derive_ranges)
 
+    from .measure import register as register_measure
+
+    register_measure(sub)  # `sorter measure` (parser and handler live in measure.py)
+
     p = sub.add_parser("recordings", help="list recordings")
     p.set_defaults(func=_cmd_recordings)
 
