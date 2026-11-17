@@ -86,8 +86,10 @@ the features that separate each part pair, how to add a part, and the known limi
 | `sorter report <session>...` | Accuracy and latency report (CSV + HTML) from graded sessions. |
 | `sorter bench` | Per-stage timing, and the stride accuracy guard. |
 | `sorter derive-ranges <session>...` | Builds a parts-library YAML from graded sessions. |
+| `sorter measure <source>` | Per-part measurements on a stationary belt vs the library ranges (table, `measure.json`, overlay). |
 
 ```
+uv run sorter measure camera --seconds 3   # stopped belt; writes sessions/measure-<time>/
 uv run sorter run --source synthetic --headless
 uv run sorter run --source synthetic --headless --parts 30 --decision-log out/log.jsonl
 uv run sorter replay my-rec --pipeline --decision-log out/log.jsonl
