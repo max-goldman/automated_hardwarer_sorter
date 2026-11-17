@@ -400,12 +400,13 @@ def test_seam_alone_never_produces_output():
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "The seam slivers are gone now and the seam no longer yields parts, but a bolt_0375 "
-        "lying ALONG the travel axis (angle 0) over the seam still splits into two duplicate "
-        "MERGED tracks with 0-1 valid frames -> UNRESOLVED -> rework. The axis-aligned bolt is "
-        "the hard case: its width profile is near-degenerate even off the seam, and the seam "
-        "repair under it leaves the head end tapering so head_length reads ~0. Remove this mark "
-        "once the seam-repaired, axis-aligned bolt tracks as one part and classifies as a bolt."
+        "Not a bolt-feature bug (task 018 fixed head_length_in; 30/30 now passes). With the "
+        "seam template ready, seam._repair leaves the whole seam strip attached to the bolt: the "
+        "stitch lines do not match the template (|flat/template - 1| p90 ~0.24 > _REPAIR_EPS "
+        "0.08), so the unexplained stitch residue is closed (k ~ band width) into a solid strip "
+        "that joins the bolt's shadow halo. The blob is ~2.4 in long (hull_solidity 0.57), "
+        "MERGED, never a bolt -> UNRESOLVED + a duplicate track. Fix belongs in seam.py "
+        "(stitch/template registration along the seam, or not closing across residue)."
     ),
 )
 def test_bolt_on_seam_is_one_part_not_split():
