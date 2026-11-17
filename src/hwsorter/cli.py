@@ -313,6 +313,75 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return cmd_bench(args, load_config(args.config))
 
 
+def _cmd_derive_ranges(args: argparse.Namespace) -> int:
+    from collections import Counter
+    from pathlib import Path
+
+    import yaml
+
+    from .classify import derive_ranges
+    from .classify.library import library_from_dict
+    from .config import project_root
+    from .contracts import FusedFeatures, PartClass
+    from .grading import KIND_CLASS, GradingSession, LabelStore, load_session
+
+    default_lib = project_root() / "config" / "parts_library.yaml"
+    base_path = Path(args.base) if args.base else default_lib
+    if args.in_place:
+        target = Path(args.out) if args.out else base_path
+    else:
+        target = Path(args.out) if args.out else base_path.with_suffix(".derived.yaml")
+        if target.exists():
+            raise FileExistsError(
+                f"{target} already exists; not overwriting it (pass --in-place to overwrite, "
+                "or --out for a different file)"
+            )
+    examples: list[tuple[PartClass, FusedFeatures]] = []
+    for name in args.session:
+        path = Path(name)
+        if not path.exists() and (project_root() / "sessions" / name).exists():
+            path = project_root() / "sessions" / name
+        data = load_session(path)
+        graded = GradingSession(data, LabelStore(data.root / "labels.jsonl"))
+        for i, part in enumerate(graded.parts):
+            lab = graded.label_of(i)
+            if lab is None or lab.kind != KIND_CLASS or part.raw.get("median") is None:
+                continue
+            median = {
+                k: (float("nan") if v is None else float(v)) for k, v in part.raw["median"].items()
+            }
+            examples.append(
+                (
+                    PartClass(lab.part_class),
+                    FusedFeatures(
+                        median, {}, int(part.raw.get("n_frames", 0)), bool(part.raw.get("on_seam"))
+                    ),
+                )
+            )
+    if not examples:
+        raise ValueError(
+            "no labelled in-scope parts found in the given sessions (grade them first)"
+        )
+    derived = derive_ranges(examples, args.margin)
+    # Classes with no examples keep their entry from the base library, so the output loads.
+    base = yaml.safe_load(base_path.read_text(encoding="utf-8")) if base_path.exists() else None
+    merged = {"parts": dict((base or {}).get("parts", {}))}
+    merged["parts"].update(derived["parts"])
+    library_from_dict(merged)  # raises if the result would not load (e.g. no base for unseen parts)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    header = "# Derived by `sorter derive-ranges` from graded sessions; review before using.\n"
+    target.write_text(header + yaml.safe_dump(merged, sort_keys=False), encoding="utf-8")
+    counts = Counter(pc for pc, _ in examples)
+    print(
+        f"{len(examples)} labelled parts from {len(args.session)} session(s); margin {args.margin:g}"
+    )
+    for pc in PartClass:
+        state = "derived" if counts[pc] else "kept from base library"
+        print(f"  {pc.value:<12} {counts[pc]:>3} examples  ({state})")
+    print(f"wrote {target}")
+    return 0
+
+
 def _cmd_recordings(args: argparse.Namespace) -> int:
     from .recording import RecordingReader
     from .session import recordings_dir
@@ -549,6 +618,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", help="output folder (default: the first session folder)")
     p.set_defaults(func=_cmd_report)
+
+    p = sub.add_parser(
+        "derive-ranges", help="derive a parts-library YAML from graded sessions (never overwrites)"
+    )
+    p.add_argument("session", nargs="+", help="graded session folder(s) (or names under sessions/)")
+    p.add_argument("--margin", type=float, default=0.1, help="range padding fraction (default 0.1)")
+    p.add_argument(
+        "--base", help="library to take unseen parts from (default config/parts_library.yaml)"
+    )
+    p.add_argument(
+        "--out", help="output file (default: parts_library.derived.yaml next to the base library)"
+    )
+    p.add_argument("--in-place", action="store_true", help="overwrite the target if it exists")
+    p.set_defaults(func=_cmd_derive_ranges)
 
     p = sub.add_parser("recordings", help="list recordings")
     p.set_defaults(func=_cmd_recordings)
