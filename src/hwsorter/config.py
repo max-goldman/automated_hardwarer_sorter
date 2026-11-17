@@ -115,6 +115,9 @@ class SegmentConfig(_Section):
     shadow_trim_depth: float = Field(0.18, gt=0)  # |flat - 1| below this can be shadow/reflection
     shadow_soft_gradient: float = Field(0.02, gt=0)  # |grad flat| per px below this is soft
     edge_grow_gradient: float = Field(0.03, ge=0)  # weaker edges connected to a part join it; 0=off
+    refine_step_gradient: float = Field(
+        0.05, ge=0
+    )  # outline snaps to the outermost step this sharp
 
 
 class SeamConfig(_Section):
@@ -150,7 +153,9 @@ class FeaturesConfig(_Section):
     )  # x local belt level: darker at the part centre = dark bore (nut ~0.21)
     hole_min_diameter_in: float = Field(0.08, gt=0)  # smaller holes are noise
     hole_ring_gap_in: float = Field(0.02, ge=0)  # the local belt ring starts this far outside
-    hole_ring_in: float = Field(0.05, gt=0)  # local belt ring width (hole levels are relative to it)
+    hole_ring_in: float = Field(
+        0.05, gt=0
+    )  # local belt ring width (hole levels are relative to it)
     min_valid_frames: int = Field(3, ge=1)  # fewer valid observations cannot be fused
     radial_samples: int = Field(180, ge=16)  # contour radial-profile samples (hex harmonic)
 

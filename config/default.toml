@@ -82,6 +82,7 @@ shadow_trim = true          # peel attached soft shadows/reflections off the par
 shadow_trim_depth = 0.18    # only pixels within this of the belt level (|flat - 1|) can be peeled
 shadow_soft_gradient = 0.02 # |grad flat| per px below this is soft (shadow); part edges are sharper
 edge_grow_gradient = 0.03   # weaker (low-contrast) edges connected to a part join it; 0 = off
+refine_step_gradient = 0.05 # sub-pixel outline snaps to the outermost step at least this sharp (|flat-1| per px); 0 = level rule only
 
 [seam]
 enabled = true
