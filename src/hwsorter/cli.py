@@ -13,6 +13,34 @@ import numpy as np
 from .config import load_config, machine_name
 
 
+def resolve_recording(cfg, spec: str):
+    """Find a recording: existing path, exact folder name, else newest `<timestamp>-<spec>`."""
+    from pathlib import Path
+
+    from .session import recordings_dir
+
+    path = Path(spec)
+    if path.exists():
+        return path
+    folder = recordings_dir(cfg)
+    exact = folder / spec
+    if exact.exists():
+        return exact
+    found = sorted(p for p in folder.glob(f"*-{spec}") if (p / "meta.json").exists())
+    if found:
+        return found[-1]  # timestamps sort lexically, so the last is the newest
+    available = sorted(m.parent.name for m in folder.glob("*/meta.json"))
+    listing = ", ".join(available) if available else "none"
+    raise FileNotFoundError(f"no recording matches {spec!r} in {folder} (available: {listing})")
+
+
+def _min_one(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def _cmd_camera_info(args: argparse.Namespace) -> int:
     from .calibration.exposure import flicker_stats
     from .camera import resolve_backend
@@ -109,7 +137,9 @@ def _cmd_replay(args: argparse.Namespace) -> int:
     from .session import open_source
 
     cfg = load_config(args.config)
-    source, _ = open_source(cfg, args.recording, realtime=args.realtime)
+    source, _ = open_source(
+        cfg, str(resolve_recording(cfg, args.recording)), realtime=args.realtime
+    )
     reader = source.reader  # type: ignore[attr-defined]
     print(
         f"{reader.path}: {len(reader)} frames, {reader.duration_s:.2f} s, {reader.width}x{reader.height} at {reader.fps:g} fps, "
@@ -172,16 +202,11 @@ def _cmd_recordings(args: argparse.Namespace) -> int:
 
 
 def _calibrate_flatfield(cfg, args: argparse.Namespace) -> int:
-    from pathlib import Path
-
     from .calibration import calibration_path, load_calibration, save_calibration
     from .calibration.flatfield import build_flatfield
     from .recording import RecordingReader
-    from .session import recordings_dir
 
-    path = Path(args.recording)
-    if not path.is_absolute() and not path.exists():
-        path = recordings_dir(cfg) / args.recording
+    path = resolve_recording(cfg, args.recording)
     with RecordingReader(path) as reader:
         if len(reader) == 0:
             raise ValueError(f"recording {path} has no frames")
@@ -220,6 +245,12 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
         return 0
     cal = load_calibration()
     print(f"machine: {machine_name()}   file: {calibration_path()}")
+    if cal.flatfield_file:
+        flat = calibration_path().parent / cal.flatfield_file
+        status = "ok" if flat.exists() else "MISSING (rebuild with calibrate flatfield)"
+        print(f"  flatfield {flat}  [{status}]")
+    else:
+        print("  flatfield not calibrated")
     for name in ("scale", "roi", "focus", "exposure", "belt"):
         value = getattr(cal, name)
         if value is None:
@@ -237,7 +268,11 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 def _cmd_gui(args: argparse.Namespace) -> int:
     from .gui.app import run
 
-    return run(load_config(args.config), args.source)
+    cfg = load_config(args.config)
+    source = args.source
+    if source not in ("camera", "synthetic"):
+        source = str(resolve_recording(cfg, source))
+    return run(cfg, source)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -287,7 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
     csub.add_parser("show", help="print the saved calibration")
     q = csub.add_parser("flatfield", help="build the illumination map from an empty-belt recording")
     q.add_argument("recording", help="recording name or path (empty, moving belt)")
-    q.add_argument("--max-frames", type=int, default=80, help="frames used for the median")
+    q.add_argument("--max-frames", type=_min_one, default=80, help="frames used for the median")
     p.set_defaults(func=_cmd_calibrate)
     return parser
 

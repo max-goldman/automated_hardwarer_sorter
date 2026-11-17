@@ -44,15 +44,19 @@ Examples:
 uv run sorter camera-info --seconds 5 --exposure-ms 0.5
 uv run sorter gui                          # live camera
 uv run sorter gui --source synthetic       # no camera needed
-uv run sorter gui --source my-recording    # a recording name or path
+uv run sorter gui --source empty-belt     # a recording name or path
 uv run sorter record empty-belt --seconds 10 --notes "empty moving belt"
 uv run sorter record test --source synthetic --seconds 2
-uv run sorter replay empty-belt            # add --realtime to pace playback
+uv run sorter replay empty-belt            # short name finds the newest; add --realtime to pace playback
 uv run sorter recordings
 uv run sorter calibrate target --out calibration-target.pdf
 uv run sorter calibrate show
 uv run sorter calibrate flatfield empty-belt --max-frames 80
 ```
+
+Recording arguments (`replay`, `gui --source`, `calibrate flatfield`) accept a path, an exact
+folder name from `sorter recordings`, or the short name you gave `record` (folders are named
+`<YYYYmmdd-HHMMSS>-<name>`; the newest match wins). Unknown names list what is available.
 
 `record` options: `--seconds`, `--exposure-ms`, `--notes`, `--source camera|synthetic`.
 `record` exits 1 if any frames were lost.
@@ -63,7 +67,8 @@ uv run sorter calibrate flatfield empty-belt --max-frames 80
 2. `sorter gui`: use the Exposure, Focus, Scale and Belt tabs. Results are saved per machine.
 3. Record an empty moving belt (`sorter record empty-belt --seconds 10`), then
    `sorter calibrate flatfield empty-belt`.
-4. `sorter calibrate show` lists what is calibrated and what is missing.
+4. `sorter calibrate show` lists what is calibrated and what is missing, including the
+   flat-field file and whether it exists.
 
 ### Milestones 2 and 3 commands
 
