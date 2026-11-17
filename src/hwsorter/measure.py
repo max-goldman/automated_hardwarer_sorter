@@ -92,9 +92,9 @@ def _grab_camera(cfg: SorterConfig, seconds: float, max_frames: int) -> list[Fra
     from .session import Session
 
     session = Session(cfg, "camera")
-    session.start()
     frames: list[Frame] = []
     try:
+        session.start()
         time.sleep(0.5)  # let the stream settle after the exposure change
         queue = session.capture.subscribe("measure", max(max_frames, cfg.pipeline.queue_frames))
         end = time.monotonic() + seconds
@@ -313,7 +313,8 @@ def run_measurement(
     n_used = len(used)
     need = max(1, math.ceil(MIN_SEEN_FRACTION * n_used))
     kept = sorted((c for c in clusters if len(c.frames) >= need), key=lambda c: c.cx)
-    ignored = len(clusters) - len(kept)
+    sporadic = sorted((c for c in clusters if len(c.frames) < need), key=lambda c: c.cx)
+    ignored = len(sporadic)
 
     lib_path = Path(library_path or cfg.classify.library_path)
     library = load_library(lib_path if lib_path.is_absolute() else project_root() / lib_path)
@@ -390,6 +391,10 @@ def run_measurement(
             else DIM_FRACTION * float(np.percentile(levels, 90)),
         },
         "ignored_sporadic_blobs": ignored,
+        "sporadic_clusters": [
+            {"centre_in": [round(c.cx, 4), round(c.cy, 4)], "n_frames_seen": len(c.frames)}
+            for c in sporadic
+        ],
         "seam_detected": bool(seam_obs is not None and seam_obs.present),
         "overlay_frame_seq": int(frame.seq),
         "library": str(lib_path),
@@ -421,8 +426,13 @@ def format_report(result: dict[str, Any]) -> str:
     )
     if result["ignored_sporadic_blobs"]:
         lines.append(
-            f"ignored {result['ignored_sporadic_blobs']} sporadic blob(s) seen in few frames"
+            f"ignored {result['ignored_sporadic_blobs']} sporadic blob(s) seen in few frames:"
         )
+        for c in result["sporadic_clusters"]:
+            lines.append(
+                f"  at ({c['centre_in'][0]:.2f}, {c['centre_in'][1]:.2f}) in, "
+                f"seen in {c['n_frames_seen']} frame(s)"
+            )
     lines.append(f"seam detected: {result['seam_detected']}   library: {result['library']}")
     lines.append("")
     head = (

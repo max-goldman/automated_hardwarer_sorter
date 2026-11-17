@@ -64,3 +64,38 @@ def test_cli_writes_outputs_and_exits_zero(tmp_path):
         img = cv2.imread(str(out / name), cv2.IMREAD_UNCHANGED)
         assert img is not None and img.shape[:2] == (800, 1280)
     assert np.count_nonzero(cv2.imread(str(out / "mask.png"), cv2.IMREAD_GRAYSCALE)) > 1000
+
+
+def test_sporadic_clusters_are_listed_not_just_counted(cfg):
+    base, scene = measure.still_synthetic_frames(cfg, 10)
+    extra_layout = (*measure.STILL_LAYOUT, ("nut_025", 3.3, 0.5))
+    extra, _ = measure.still_synthetic_frames(cfg, 2, layout=extra_layout)
+    result = measure.run_measurement([*base, *extra], cfg, _rig(scene))
+    assert result["ignored_sporadic_blobs"] == len(result["sporadic_clusters"]) >= 1
+    s = result["sporadic_clusters"][0]
+    assert len(s["centre_in"]) == 2 and 1 <= s["n_frames_seen"] < 4
+    text = measure.format_report(result)
+    assert "seen in" in text and f"{s['centre_in'][0]:.2f}" in text
+    json.dumps({k: v for k, v in result.items() if k != "_overlay"}, allow_nan=False)
+
+
+def test_grab_camera_stops_session_when_start_fails(cfg, monkeypatch):
+    from hwsorter import session as session_mod
+
+    calls = []
+
+    class FakeSession:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            calls.append("start")
+            raise RuntimeError("no camera")
+
+        def stop(self):
+            calls.append("stop")
+
+    monkeypatch.setattr(session_mod, "Session", FakeSession)
+    with pytest.raises(RuntimeError):
+        measure._grab_camera(cfg, 0.1, 5)
+    assert calls == ["start", "stop"]
