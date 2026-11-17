@@ -98,7 +98,16 @@ Done this session (in order):
 - **010 scheduler:** DONE, merged `--no-ff`. Jitter test made opt-in (`HWSORTER_RUN_JITTER`); the scheduler fire loop is now guarded (logging.exception, thread survives). Session-2 review round-1 blocking item satisfied; the orchestrator self-reviewed the small diff (sound) in place of a full round-2.
 - **004 segmentation:** fresh Opus review = APPROVE (no correctness/contract bugs; 6 parts→1 blob, shadows/specks rejected, facets don't split). Measured ~16 ms/frame (full-frame-bound) vs ~3 ms target. Budget rework IN PROGRESS (two-stage coarse-then-crop, label LUT, single-pass `inv_flat` preprocess, coarse_scale 1-vs-2 equivalence test). `segment()` mapper param blessed (see Architecture decisions).
 
-Live status: 002b DONE·merged | 010 DONE·merged | 004 REWORK in progress (functional APPROVE) | 005 worker running (verify+tests) | 007 review running | 008 TODO (needs 007's feature_names) | 011–016 TODO.
+Live status: 002b · 004 · 007 · 008 · 010 DONE·merged | 005 IN REVIEW (worker DONE; fixed a washer on-seam area bug) | 011 next (unblocked once 005 merges) | 012–016 TODO.
+
+### Notes for task 011 (integration) — gathered from the wave-2 reviews
+- `segment(prepared, cfg, mapper)`: 011 MUST pass a real `PlaneMapper`, not None, or the min-area gate drops to an 8 px floor. `segment.coarse_scale` defaults to 2 (two-stage); equivalence with 1 is tested.
+- `extract(obs, prepared, cfg.features)` and `fuse(track, vectors, cfg.features)`: pass `cfg.features` EXPLICITLY, or any user `[features]` tuning is silently ignored (they default to a fresh `FeaturesConfig()`).
+- Classifier: `classify/library.py` hard-codes `FEATURE_NAMES` (007 was not merged into 008's branch). Add a guard test that `set(classify.library.FEATURE_NAMES) == set(hwsorter.vision.features.feature_names())`, or switch the library to import `feature_names()` — prevents silent drift.
+- Seam: 005's tests used a crude stand-in segmenter that splits `bolt_0375`; wire the REAL `segment()` into the pipeline and re-check a `bolt_0375` on the seam. Only `SeamHandler.set_scale(px_per_in)` is needed from the handler.
+- Strides (ADOPTED): process `seq % frame_stride == 0`; extract features on valid observations where `(seq // frame_stride) % feature_stride == 0`, capped at `max_feature_frames`/track; replay BLOCKS (never drops); any queue overflow is logged and counted as a FAIL.
+- Tracker needs a public read-only `t0_ns` (006 note); `Grouper.advance` frontier must account for live tracks behind a group (009 note, invariant 6).
+- `hole_kind` is a categorical median (0/1/2, can be 0.5/1.5 on split votes, NaN degenerate); the classifier already brackets integer codes and treats a NaN required feature as non-fitting.
 
 ## Hardware and camera (session 3 onward)
 - **Session 3+ runs on a different machine with NO camera** and no access to this Mac's recordings (`recordings/` is gitignored). Everything must be built and verified with synthetic scenes, generated recordings and unit tests. No task may need the camera, the rig or a real recording to pass.
