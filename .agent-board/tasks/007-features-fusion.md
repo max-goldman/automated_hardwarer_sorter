@@ -1,6 +1,6 @@
 # 007 feature registry, features, fusion
 
-Status: IN_REVIEW
+Status: DONE (merged into develop, session 3)
 Dependencies: 002
 Branch: `task/007-features-fusion` (from `develop`)
 
@@ -62,4 +62,5 @@ nut_025 1.7 ms, nut_0375 2.2 ms, washer_025 3.5 ms, washer_0375 ~4.3 ms (up to 7
 
 
 ## Review Notes
-(reviewer only)
+Session 3 fresh Opus review: APPROVE, no changes required. 102 tests pass; clean in-scope diff; no Qt import; contract-compliant registry/fuse.
+Authoritative feature_names() (15, by runtime capture): area_in2, minrect_long_in, minrect_short_in, hull_solidity, circularity, hex_harmonic, across_flats_in, across_corners_in, shank_width_in, head_width_in, head_length_in, total_length_in, hole_kind, hole_diameter_in, edge_sharpness. (The "design notes" order above lists the hole block before the bolt block — STALE; key by name.) Perf ~4 ms/part (bolts ~7 ms) on the 2-core Xeon; 011 caps frames/part, bench (015) is the gate. See board "Notes for task 011".

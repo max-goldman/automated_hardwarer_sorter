@@ -1,6 +1,6 @@
 # 002b budget config keys
 
-Status: TODO
+Status: DONE (merged into develop, session 3)
 Dependencies: none (002 DONE)
 Branch: `task/002b-budget-config` (from `develop`)
 

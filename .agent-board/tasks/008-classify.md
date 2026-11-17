@@ -1,6 +1,6 @@
 # 008 parts library + range classifier
 
-Status: IN_PROGRESS
+Status: DONE (merged into develop, session 3)
 Dependencies: 002
 Branch: `task/008-classify` (from `develop`)
 
@@ -18,4 +18,4 @@ Session 2 ended (usage limit) mid-task. WIP is committed on `task/008-classify` 
 (worker pastes each command, exit code, last ~50 lines)
 
 ## Review Notes
-(reviewer only)
+Session 3: worker verified + fixed a CONFIDENT-wrong case (a 0.688 in out-of-scope washer scored CONFIDENT washer_025) by tightening washer_025/0375 ranges; replaced the WIP's skip-NaN with a NaN-required-feature -> inf -> UNRESOLVED rule; made CONFIDENT require exactly one (part, pose) within the threshold; load_library now rejects unknown feature keys and edge_sharpness as a range key. 128 tests pass (incl. near-miss never-confident, MERGED->UNRESOLVED, few-frames, derive_ranges round trip). Orchestrator reviewed the scorer (ranges.py) against invariants 7/8: correct. library.py hard-codes FEATURE_NAMES because 007 was not in its branch — guard test to reconcile with vision.features.feature_names() is listed in board "Notes for task 011".

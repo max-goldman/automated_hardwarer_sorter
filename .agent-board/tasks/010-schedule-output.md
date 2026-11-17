@@ -1,6 +1,6 @@
 # 010 scheduler + output adapters
 
-Status: IN_PROGRESS
+Status: DONE (merged into develop, session 3)
 Dependencies: 002
 Branch: `task/010-schedule-output` (from `develop`)
 

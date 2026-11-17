@@ -102,4 +102,7 @@ print("steady examples:", examples)
 
 
 ## Review Notes
-(reviewer only)
+Session 3: two fresh Opus reviews, both APPROVE.
+- Functional (pre-rework 060a71c): 6 parts -> 1 blob each within 5% area; soft shadows + specks rejected; bolt-head facets don't split the bolt; Blob/Prepared contract OK. No correctness bugs.
+- Rework (959b67a): LUT == np.isin (0/4000 mismatch, both call sites); inv_flat single-multiply == old divide-by-flat/gain (<=3e-5 abs), no div-by-zero (build_flatfield clamps flat>=1.0); two-stage full-image coords + touches_edge correct; _merge_boxes avoids double-count; 144 single-part cases (6 kinds x 8 angles incl. bright facets) BIT-IDENTICAL to the full-frame path; coarse_scale 1-vs-2 equivalence test passes. ~2.2x faster (coarse=2 ~7.4 ms vs ~16 ms, 2-core Xeon); the absolute ~3 ms Dell/M5 budget is gated by the 015 bench, not here.
+Contract: segment(prepared, cfg, mapper) — mapper param blessed by the orchestrator (see board Architecture decisions); 011 MUST pass a real mapper. HW checkpoint 2: coarse stage drops the gradient term (|flat-1| only) — fine for all 6 synthetic parts; glance at real belt images for a part with a large belt-bright face.
