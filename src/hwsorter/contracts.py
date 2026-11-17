@@ -314,6 +314,7 @@ DETERMINISM_IGNORE_KEYS = frozenset(
         "wall_time",
         "session",
         "source",
+        "machine",  # hostname in session_start; ignored so a Mac-vs-Dell replay --compare matches
         "t_start_ns",
         "t_end_ns",
         "duration_ns",
