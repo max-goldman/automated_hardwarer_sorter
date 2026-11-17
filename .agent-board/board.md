@@ -36,7 +36,7 @@ No build step (pure Python, hatchling). Tests must run headless (Qt tests use of
 - In the decision log, non-finite floats are written as `null` (read back as NaN). Serialise with `contracts.to_log_dict`. Determinism comparisons skip `DETERMINISM_IGNORE_KEYS` and the log_open record.
 - A GroupDecision's `t_ref_ns` and `x_lead_in_at_ref` come from the most downstream member (max `belt_x_lead_in`).
 - `Frame.t_capture_ns` is the raw driver timestamp on the monotonic clock, not latency-corrected; replay preserves it. The pipeline subtracts camera latency once.
-- PartClass values: bolt_025, bolt_0375, nut_025, nut_0375, washer_025, washer_0375 (match synthetic.PART_DIMS; synthetic also has out-of-scope `coin`, `washer_0312`).
+- PartClass values: bolt_025, bolt_0312, nut_025, nut_0312, washer_025, washer_0312 (5/16-18 since task 024, user decision 2026-11-17; previously *_0375). Out-of-scope near-misses in synthetic: the 3/8 parts and `coin`.
 - A task MAY change the default VALUES of its own config section (in both `config.py` and `config/default.toml`), with the measurement that justifies it in the task file. It must not add or rename keys, or touch other sections.
 - The Scheduler (not the adapter) writes the single `"send"` decision-log record (it knows `miss`). Determinism comparison ignores `t_actual_ns` and compares records per kind, in order within each kind, because send lines interleave from the scheduler thread.
 - `PipelineSnapshot` (the GUI view of live state) is owned by task 011 in `pipeline.py`, not contracts.py. Task 014 consumes it.
@@ -126,6 +126,7 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | 019 `sorter measure` | DONE, merged | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
 | 020 stationary-belt mode | DONE, merged (3 rounds) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
 | 021 cross-machine compare | DONE, merged |
+| 024 second size = 5/16-18 | IN_PROGRESS | User decision 2026-11-17: second size is 5/16-18 (brief said 3/8 in error); nuts are nyloc. Rename PartClass *_0375 -> *_0312, library, synthetic, docs, brief. |
 | 023 real-image robustness | IN_PROGRESS (Opus worker) | First real stationary images: uneven/drifting illumination, attached shadows, outline-noise circularity, bolt shank, washer hole level, false seam. |
 | 022 test isolation + measure polish | DONE, merged | Tests must ignore `config/local.toml` (this Mac has exposure_ms=8.0, which broke 2 golden CLI tests after the 021 merge). Plus 019 optional notes. | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
 
