@@ -266,7 +266,7 @@ def _trim_soft(
     # outline line would look soft there: use the largest gradient in a small neighbourhood.
     k = 2 * _TRIM_SEAL_PX + 1
     gmax = cv2.dilate(grad, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
-    soft = (gmax < cfg.shadow_soft_gradient) & (sm > 1.0 - cfg.shadow_trim_depth) & (sm < 1.0)
+    soft = (gmax < cfg.shadow_soft_gradient) & (np.abs(sm - 1.0) < cfg.shadow_trim_depth)
     soft &= valid
     seeds = soft & (mask == 0)
     if not seeds.any():

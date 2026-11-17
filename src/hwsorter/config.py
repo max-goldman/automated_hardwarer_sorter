@@ -143,11 +143,13 @@ class FeaturesConfig(_Section):
     elongated_min_aspect: float = Field(1.8, gt=1)  # length/width above which bolt features exist
     hole_bright_threshold: float = Field(
         0.90, gt=0
-    )  # flat (part/belt) above this inside a part = see-through hole (washer ~1.0)
+    )  # x local belt level: brighter at the part centre = see-through hole (washer ~1.0)
     hole_dark_threshold: float = Field(
         0.30, gt=0
-    )  # flat below this inside a part = dark bore (nut ~0.21; bodies >= 0.40)
+    )  # x local belt level: darker at the part centre = dark bore (nut ~0.21)
     hole_min_diameter_in: float = Field(0.08, gt=0)  # smaller holes are noise
+    hole_ring_gap_in: float = Field(0.02, ge=0)  # the local belt ring starts this far outside
+    hole_ring_in: float = Field(0.05, gt=0)  # local belt ring width (hole levels are relative to it)
     min_valid_frames: int = Field(3, ge=1)  # fewer valid observations cannot be fused
     radial_samples: int = Field(180, ge=16)  # contour radial-profile samples (hex harmonic)
 

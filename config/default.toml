@@ -102,9 +102,11 @@ min_frames = 5              # fewer valid frames sets TrackFlag.FEW_FRAMES
 
 [features]
 elongated_min_aspect = 1.8      # length/width above which bolt-profile features are computed
-hole_bright_threshold = 0.90    # flat (part/belt) above this inside a part = see-through hole (washer ~1.0)
-hole_dark_threshold = 0.30      # flat below this inside a part = dark bore (nut ~0.21; bodies >= 0.40)
+hole_bright_threshold = 0.90    # x local belt level: brighter at the part centre = see-through hole (washer)
+hole_dark_threshold = 0.30      # x local belt level: darker at the part centre = dark bore (nut ~0.21)
 hole_min_diameter_in = 0.08     # smaller holes are noise
+hole_ring_gap_in = 0.02         # local belt ring starts this far outside the outline (skips edge blur)
+hole_ring_in = 0.05             # local belt ring width; hole thresholds are fractions of its median
 min_valid_frames = 3            # fewer valid observations cannot be fused
 radial_samples = 180            # contour radial-profile samples (hex harmonic)
 
