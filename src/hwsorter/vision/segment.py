@@ -246,6 +246,7 @@ def _fill_enclosed(mask: np.ndarray, gap_px: int = _FILL_GAP_PX) -> np.ndarray:
 
 
 _TRIM_SEAL_PX = 2  # gradient neighbourhood radius for the soft test (seals valleys and gaps)
+_TRIM_SPLIT_FRAC = 0.1  # pieces at least this fraction of the largest count as a split
 
 
 def _trim_soft(
@@ -261,6 +262,12 @@ def _trim_soft(
     soft pixels alone (4-connected, so a one-pixel diagonal edge line still blocks) is shadow,
     not part, and is removed. A part's own interior (a bright facet, a see-through hole) sits
     behind its sharp silhouette edge and is never reached. Holes left by the peel are refilled.
+
+    The peel never splits a blob: if a component would break into two or more substantial
+    pieces (each at least ``_TRIM_SPLIT_FRAC`` of the largest), it is left as it was (a seam
+    strip whose soft band joins its stitches, or two parts joined by a shadow, stay one blob:
+    the safe MERGED case, never two half-parts). Otherwise only the largest piece is kept;
+    the other crumbs are shadow residue.
     """
     # The gradient is zero at the centre of a thin dark line (a valley), so a part's dark
     # outline line would look soft there: use the largest gradient in a small neighbourhood.
@@ -282,7 +289,29 @@ def _trim_soft(
     # A one-pixel residue of the soft ramp next to the true edge is harmless (the sub-pixel
     # refinement places the edge); thin spurs left between peeled regions are opened away.
     trimmed = cv2.morphologyEx(trimmed, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    return _fill_enclosed(trimmed)
+    trimmed = _fill_enclosed(trimmed)
+    n0, lab0 = cv2.connectedComponents((mask > 0).astype(np.uint8), connectivity=8)
+    n1, lab1 = cv2.connectedComponents(trimmed, connectivity=8)
+    if n1 <= 1:
+        return mask
+    # Per original component, the areas of the trimmed pieces inside it.
+    on = lab1 > 0
+    pairs = lab0[on].astype(np.int64) * n1 + lab1[on]
+    ids, area = np.unique(pairs, return_counts=True)
+    parent, piece = ids // n1, ids % n1
+    keep = np.zeros(n1, bool)
+    revert = np.zeros(n0, bool)
+    for comp in np.unique(parent):
+        sel = parent == comp
+        a, pc = area[sel], piece[sel]
+        if np.count_nonzero(a >= _TRIM_SPLIT_FRAC * a.max()) >= 2:
+            revert[comp] = True
+        else:
+            keep[pc[np.argmax(a)]] = True
+    out = keep[lab1]
+    out |= revert[lab0]
+    # A component peeled away entirely (a free-standing soft shadow) stays removed.
+    return out.astype(np.uint8)
 
 
 def _px2_per_in2(mapper: PlaneMapper, shape: tuple[int, int]) -> float:

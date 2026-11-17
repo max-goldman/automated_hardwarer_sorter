@@ -126,6 +126,7 @@ class SeamConfig(_Section):
     width_tol_in: float = Field(0.1, gt=0)  # accepted deviation from width_in
     template_frames: int = Field(30, ge=1)  # frames averaged to learn the seam template
     speed_window: int = Field(15, ge=2)  # seam sightings smoothed for the belt speed estimate
+    edge_margin_in: float = Field(0.06, ge=0)  # ROI top/bottom rows (belt edges) ignored, inches
 
 
 # Track frame counts (max_missed_frames, settle_frames, min_frames) count PROCESSED frames
