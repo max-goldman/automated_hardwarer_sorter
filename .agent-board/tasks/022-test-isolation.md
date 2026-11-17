@@ -1,6 +1,6 @@
 # 022 tests ignore machine-local config; measure polish
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: 019, 021 merged
 Branch: `task/022-test-isolation` (from `develop`)
 
@@ -18,7 +18,7 @@ On the rig Mac, `config/local.toml` (untracked, per machine) sets `camera.exposu
 With `config/local.toml` present in the MAIN checkout containing `[camera]\nexposure_ms = 8.0` (copy it into your worktree's config/ for the run): `uv run pytest -q; echo "exit=$?"` fully green; ruff check + format --check exit 0.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Worker (Sonnet), commit 22817cc, with local.toml (exposure 8.0) present: pytest exit=0; ruff exit=0; format exit=0. Isolation: tests/conftest.py pytest_configure points HWSORTER_ROOT at a temp root of symlinks without config/local.toml, config/calibration/ and output dirs. measure: start() inside try; sporadic clusters listed.
 
 ## Review Notes
-(reviewer only)
+Orchestrator self-review (small, test-only + polish), as in session 3: sound. Note: symlinks may need Developer Mode on Windows. Verified on merged develop below.
