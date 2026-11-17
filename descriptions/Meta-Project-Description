@@ -1,7 +1,13 @@
 I need to write a program for an automated hardware sorting machine. The machine is meant to sort a bin of mixed fasteners/hardware into sorted bins. Please help me draft a project description doc to give to claude fable. Ask me any questions to eliminate assumptions. The hardware sorter works as follows:
-Hardware is placed on a vibratory feeder
-The feeder feeds onto a conveyor moving at ~1.33in/s
-The conveyor moves the hardware onto a second conveyor moving at 4in/s
-An Innomaker OV9281 U20CAM-9281M (120fps global shutter, 1280x800px) is focused on a ~2x3.2in section of the conveyor (the conveyor is 2in wide, entire height is captured in view while a 3.3in section of length is in view), it takes a frame of the hardware (ideally singulated by now) and identifies it
-The hardware runs off the end of a conveyor to a rotary bin sorting system, which spins to catch the hardware in the correct bin.
-The scope of our current prototype is the following hardware: 5x 1/4in-20 1in bolts, 5x 
+1. Hardware is placed on a vibratory feeder
+2. The feeder feeds onto a conveyor belt moving at ~1.33in/s
+3. The conveyor moves the hardware onto a second, white conveyor belt moving at 4in/s
+4. An Innomaker OV9281 U20CAM-9281M (120fps global shutter, 1280x800px) is focused on a ~2x3.2in section of the conveyor (the conveyor is 2in wide, entire height is captured in view while a 3.3in section of length is in view), it takes a frame (or multiple if allowable) of the hardware (ideally singulated by now) and identifies it.
+5. The hardware runs off the end of a conveyor to a rotary bin sorting system, which spins to catch the hardware in the correct bin.
+The input scope of our current prototype is the following hardware: 5x 1/4in-20 1in bolts, 5x 1/4in-20 nuts, 5x 1/4in washers, 5x 3/8-16 1in bolts, 5x 3/8-16 nuts, 5x 3/8in washer.
+
+For our prototype, we need a program that can reliably identify this hardware from an image in under 250 ms, as that is our expected cycle time. The lower the better obviously. It should have at least 95% accuracy, and is allowed to classify items as "Miscellaneous" if it can not identify them or identifies the hardware as something outside of the scope, or "Rework" if they are too close together/layered (both of these categories affect accuracy). This output should be passed to an Arduino over USB serial which will take care of the collection logic, which is already written. It is planned to be run on a Dell laptop with an i7 and 16gb of RAM. 
+
+The following are considerations for future improvements. They shouldn't be implemented now, they are just things to keep in mind.
+Please make sure the program is scalable, as for our following prototype, we would like to introduce new hardware.
+Futher on, we may want an interface that allows for new hardware to be added to the scope, and allow assignable sections in the collector.
