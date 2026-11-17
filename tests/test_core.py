@@ -1,4 +1,6 @@
 """Config, clock, capture service, recording and replay."""
+
+import itertools
 import threading
 import time
 
@@ -14,19 +16,26 @@ from hwsorter.recording import RecordingReader, RecordingWriter, ReplaySource
 
 def test_default_toml_matches_builtin_defaults():
     # config/default.toml is the visible copy of the defaults; they must not drift apart.
-    assert load_config(root=project_root()) == SorterConfig() or (project_root() / "config" / "local.toml").exists()
+    assert (
+        load_config(root=project_root()) == SorterConfig()
+        or (project_root() / "config" / "local.toml").exists()
+    )
 
 
 def test_config_rejects_unknown_keys(tmp_path):
     (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "default.toml").write_text("schema_version = 1\n[camera]\nexposure = 0.5\n")
+    (tmp_path / "config" / "default.toml").write_text(
+        "schema_version = 1\n[camera]\nexposure = 0.5\n"
+    )
     with pytest.raises(Exception, match="exposure"):
         load_config(root=tmp_path)
 
 
 def test_config_layering(tmp_path):
     (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "default.toml").write_text("schema_version = 1\n[camera]\nexposure_ms = 0.5\nfps = 120\n")
+    (tmp_path / "config" / "default.toml").write_text(
+        "schema_version = 1\n[camera]\nexposure_ms = 0.5\nfps = 120\n"
+    )
     (tmp_path / "config" / "local.toml").write_text("[camera]\nexposure_ms = 0.8\n")
     cfg = load_config(root=tmp_path)
     assert cfg.camera.exposure_ms == 0.8 and cfg.camera.fps == 120
@@ -35,7 +44,9 @@ def test_config_layering(tmp_path):
 def test_manual_clock_sleep_until():
     clock = ManualClock(0)
     woke = []
-    thread = threading.Thread(target=lambda: (clock.sleep_until_ns(500), woke.append(clock.now_ns())))
+    thread = threading.Thread(
+        target=lambda: (clock.sleep_until_ns(500), woke.append(clock.now_ns()))
+    )
     thread.start()
     clock.advance_to(499)
     time.sleep(0.02)
@@ -56,7 +67,9 @@ class ListSource(FrameSource):
     def __init__(self, frames, fps=120.0):
         self._frames = list(frames)
         self._i = 0
-        self.info = SourceInfo("list", frames[0].image.shape[1], frames[0].image.shape[0], fps, live=False)
+        self.info = SourceInfo(
+            "list", frames[0].image.shape[1], frames[0].image.shape[0], fps, live=False
+        )
 
     def start(self):
         self._i = 0
@@ -80,8 +93,14 @@ def _frames(n, skip=(), shape=(40, 64), period_ns=8_333_333):
     for i in range(n):
         if i in skip:
             continue
-        out.append(Frame(seq, 1_000_000 + i * period_ns, 1_000_000 + i * period_ns + 5_000_000,
-                         rng.integers(0, 255, shape, dtype=np.uint8)))
+        out.append(
+            Frame(
+                seq,
+                1_000_000 + i * period_ns,
+                1_000_000 + i * period_ns + 5_000_000,
+                rng.integers(0, 255, shape, dtype=np.uint8),
+            )
+        )
         seq += 1
     return out
 
@@ -110,7 +129,7 @@ def test_slow_consumer_drops_are_counted_and_logged():
     service.stop()
     assert queue.dropped == 22 and service.stats().queue_dropped == {"slow": 22}
     assert len(service.events.recent("queue_overflow")) == 22
-    assert queue.get(0.1).seq == 22   # the newest frames survive
+    assert queue.get(0.1).seq == 22  # the newest frames survive
 
 
 def test_frame_queue_end_marker_is_sticky():
@@ -129,8 +148,12 @@ def test_recording_round_trip_is_bit_exact(tmp_path):
     writer.close()
     with RecordingReader(tmp_path / "rec") as reader:
         assert len(reader) == 25 and reader.meta["complete"] and reader.meta["exposure_ms"] == 0.5
-        for original, loaded in zip(frames, reader):
-            assert (loaded.seq, loaded.t_capture_ns, loaded.t_arrival_ns) == (original.seq, original.t_capture_ns, original.t_arrival_ns)
+        for original, loaded in zip(frames, reader, strict=True):
+            assert (loaded.seq, loaded.t_capture_ns, loaded.t_arrival_ns) == (
+                original.seq,
+                original.t_capture_ns,
+                original.t_arrival_ns,
+            )
             assert np.array_equal(loaded.image, original.image)
 
 
@@ -140,7 +163,7 @@ def test_recording_cut_short_is_still_readable(tmp_path):
         writer.write(frame)
     writer.close()
     data = (tmp_path / "rec" / "frames.bin").read_bytes()
-    (tmp_path / "rec" / "frames.bin").write_bytes(data[:-50])            # torn last frame
+    (tmp_path / "rec" / "frames.bin").write_bytes(data[:-50])  # torn last frame
     index = (tmp_path / "rec" / "index.bin").read_bytes()
     (tmp_path / "rec" / "index.bin").write_bytes(index + b"\x01\x02\x03")  # torn index record
     with RecordingReader(tmp_path / "rec") as reader:
@@ -173,7 +196,7 @@ def test_replay_fast_and_looping(tmp_path):
     looped.start()
     out = [looped.read() for _ in range(14)]
     assert [f.seq for f in out] == list(range(14))
-    assert all(b.t_capture_ns > a.t_capture_ns for a, b in zip(out, out[1:]))
+    assert all(b.t_capture_ns > a.t_capture_ns for a, b in itertools.pairwise(out))
 
 
 def test_replay_realtime_pacing(tmp_path):
@@ -186,7 +209,7 @@ def test_replay_realtime_pacing(tmp_path):
     start = time.monotonic()
     for _ in range(13):
         source.read()
-    assert 0.09 < time.monotonic() - start < 0.2   # 12 frame periods = 0.1 s
+    assert 0.09 < time.monotonic() - start < 0.2  # 12 frame periods = 0.1 s
 
 
 def test_announced_disruptions_are_logged_but_not_counted_as_unexplained():
@@ -199,7 +222,9 @@ def test_announced_disruptions_are_logged_but_not_counted_as_unexplained():
     stats = service.stats()
     service.stop()
     assert (stats.missing, stats.gaps, stats.expected_missing) == (0, 0, 3)
-    assert [e["reason"] for e in service.events.recent("frame_gap_expected")] == ["exposure change"] * 2
+    assert [e["reason"] for e in service.events.recent("frame_gap_expected")] == [
+        "exposure change"
+    ] * 2
 
 
 def test_frame_level_ignores_parts_but_follows_lighting():
@@ -208,7 +233,13 @@ def test_frame_level_ignores_parts_but_follows_lighting():
 
     scene = SceneConfig(seam=False)
     empty = frame_level(SyntheticRenderer(scene, []).render(0.5))
-    with_parts = frame_level(SyntheticRenderer(scene, [PartSpec("bolt_0375", 0.1, 1.0, 20), PartSpec("washer_0375", 0.3, 0.9)]).render(0.5))
+    with_parts = frame_level(
+        SyntheticRenderer(
+            scene, [PartSpec("bolt_0375", 0.1, 1.0, 20), PartSpec("washer_0375", 0.3, 0.9)]
+        ).render(0.5)
+    )
     assert abs(with_parts - empty) < 0.03 * empty
-    dimmed = frame_level(SyntheticRenderer(SceneConfig(seam=False, flicker_depth=0.5), []).render(0.5, 0))
+    dimmed = frame_level(
+        SyntheticRenderer(SceneConfig(seam=False, flicker_depth=0.5), []).render(0.5, 0)
+    )
     assert dimmed < 0.6 * empty

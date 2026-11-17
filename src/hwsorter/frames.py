@@ -1,4 +1,5 @@
 """Frame type and the FrameSource interface shared by live, replay and synthetic sources."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -36,9 +37,9 @@ class SourceInfo:
 
 @dataclass
 class SourceStats:
-    delivered: int = 0        # frames handed to the reader
-    driver_dropped: int = 0   # drops the driver reported
-    queue_dropped: int = 0    # frames discarded because the reader fell behind
+    delivered: int = 0  # frames handed to the reader
+    driver_dropped: int = 0  # drops the driver reported
+    queue_dropped: int = 0  # frames discarded because the reader fell behind
 
 
 class EndOfStream(Exception):
@@ -62,7 +63,7 @@ class FrameSource(ABC):
     @abstractmethod
     def stats(self) -> SourceStats: ...
 
-    def __enter__(self) -> "FrameSource":
+    def __enter__(self) -> FrameSource:
         self.start()
         return self
 

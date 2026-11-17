@@ -35,3 +35,20 @@ packages = ["src/hwsorter"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+# Pinned so results do not depend on parent or user-global ruff config.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RUF", "PLW"]
+ignore = [
+    "E501",    # long comments/strings are not wrapped by the formatter; prose lines are intentional
+    "RUF001",  # intentional en dashes in GUI strings
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.format]
+quote-style = "double"

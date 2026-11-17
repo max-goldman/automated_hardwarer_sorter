@@ -4,15 +4,18 @@ Built from frames of the empty, moving belt. Each pixel's median over time ignor
 seam and specks (they pass any one pixel only briefly), leaving lighting falloff and
 vignetting. Dividing a frame by the flat-field makes clean belt read about 1.0 everywhere.
 """
+
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import cv2
 import numpy as np
 
 
-def build_flatfield(frames: Iterable[np.ndarray], max_frames: int = 80, smooth_sigma_px: float = 6.0) -> np.ndarray:
+def build_flatfield(
+    frames: Iterable[np.ndarray], max_frames: int = 80, smooth_sigma_px: float = 6.0
+) -> np.ndarray:
     """Return a float32 image of the belt's gray level per pixel (same size as the frames).
 
     Frames dimmer than 90% of the typical brightness are skipped, so lighting flicker
@@ -26,7 +29,7 @@ def build_flatfield(frames: Iterable[np.ndarray], max_frames: int = 80, smooth_s
         frames = [frames[i] for i in idx]
     levels = np.array([float(f[::8, ::8].mean()) for f in frames])
     keep = levels >= 0.9 * np.median(levels)
-    stack = np.stack([f for f, k in zip(frames, keep) if k]).astype(np.uint8)
+    stack = np.stack([f for f, k in zip(frames, keep, strict=True) if k]).astype(np.uint8)
     flat = np.median(stack, axis=0).astype(np.float32)
     if smooth_sigma_px > 0:
         flat = cv2.GaussianBlur(flat, (0, 0), smooth_sigma_px)

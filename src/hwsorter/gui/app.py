@@ -1,4 +1,5 @@
 """Main window: live video on the left, live status and calibration tools on the right."""
+
 from __future__ import annotations
 
 import sys
@@ -19,7 +20,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Hardware Sorter")
         self.video = VideoWidget()
         self.tabs = QTabWidget()
-        self.panels: list[Panel] = [cls(session) for cls in (LivePanel, ExposurePanel, FocusPanel, ScalePanel, BeltPanel)]
+        self.panels: list[Panel] = [
+            cls(session) for cls in (LivePanel, ExposurePanel, FocusPanel, ScalePanel, BeltPanel)
+        ]
         for panel in self.panels:
             self.tabs.addTab(panel, panel.title)
         self.tabs.setMinimumWidth(380)
@@ -50,7 +53,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(
             f"{stats.fps:5.1f} fps   |   {stats.frames} frames   |   {lost} lost   |   "
             f"exposure {exposure:.1f} ms" + ("   |   ● REC" if self.session.recording else "")
-            if exposure is not None else f"{stats.fps:5.1f} fps   |   {stats.frames} frames   |   {lost} lost"
+            if exposure is not None
+            else f"{stats.fps:5.1f} fps   |   {stats.frames} frames   |   {lost} lost"
         )
         if frame is None or frame.seq == self._last_seq:
             return
@@ -58,7 +62,7 @@ class MainWindow(QMainWindow):
         self.video.set_frame(frame.image)
         self.panels[self.tabs.currentIndex()].maybe_frame(frame)
 
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+    def closeEvent(self, event) -> None:
         self.timer.stop()
         self.session.stop()
         super().closeEvent(event)
@@ -69,8 +73,10 @@ def run(cfg: SorterConfig, source_spec: str = "camera") -> int:
     try:
         session = Session(cfg, source_spec, realtime=True, loop=True)
         session.start()
-    except Exception as exc:  # noqa: BLE001 - shown to the user
-        QMessageBox.critical(None, "Hardware Sorter", f"Could not start the {source_spec} source:\n\n{exc}")
+    except Exception as exc:
+        QMessageBox.critical(
+            None, "Hardware Sorter", f"Could not start the {source_spec} source:\n\n{exc}"
+        )
         return 1
     window = MainWindow(session)
     window.show()

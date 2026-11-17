@@ -2,6 +2,7 @@
 
 Shared by the command-line tools and the GUI. No Qt here.
 """
+
 from __future__ import annotations
 
 import re
@@ -19,21 +20,30 @@ from .frames import EndOfStream, FrameSource
 from .recording import RecordingWriter, ReplaySource
 
 
-def open_source(cfg: SorterConfig, spec: str = "camera", realtime: bool = True, loop: bool = False) -> tuple[FrameSource, CameraControl]:
+def open_source(
+    cfg: SorterConfig, spec: str = "camera", realtime: bool = True, loop: bool = False
+) -> tuple[FrameSource, CameraControl]:
     """spec: "camera", "synthetic", or the path of a recording."""
     if spec == "camera":
         return open_camera(cfg.camera)
     if spec == "synthetic":
         from .synthetic import SceneConfig, SyntheticSource
 
-        scene = SceneConfig(width=cfg.camera.width, height=cfg.camera.height, fps=cfg.camera.fps, speed_in_s=cfg.belt.speed_in_s,
-                            loop_length_in=cfg.belt.loop_length_in)
+        scene = SceneConfig(
+            width=cfg.camera.width,
+            height=cfg.camera.height,
+            fps=cfg.camera.fps,
+            speed_in_s=cfg.belt.speed_in_s,
+            loop_length_in=cfg.belt.loop_length_in,
+        )
         return SyntheticSource(scene, realtime=realtime), NullCameraControl(cfg.camera.exposure_ms)
     path = Path(spec)
     if not path.is_absolute() and not path.exists():
         path = recordings_dir(cfg) / spec
     source = ReplaySource(path, realtime=realtime, loop=loop)
-    return source, NullCameraControl(float(source.reader.meta.get("exposure_ms") or cfg.camera.exposure_ms))
+    return source, NullCameraControl(
+        float(source.reader.meta.get("exposure_ms") or cfg.camera.exposure_ms)
+    )
 
 
 def recordings_dir(cfg: SorterConfig) -> Path:
@@ -42,8 +52,14 @@ def recordings_dir(cfg: SorterConfig) -> Path:
 
 
 class Session:
-    def __init__(self, cfg: SorterConfig, source_spec: str = "camera", realtime: bool = True, loop: bool = False,
-                 event_log: EventLog | None = None) -> None:
+    def __init__(
+        self,
+        cfg: SorterConfig,
+        source_spec: str = "camera",
+        realtime: bool = True,
+        loop: bool = False,
+        event_log: EventLog | None = None,
+    ) -> None:
         self.cfg = cfg
         self.source_spec = source_spec
         self.events = event_log or EventLog()
@@ -73,7 +89,7 @@ class Session:
         self.control.close()
 
     def set_exposure(self, exposure_ms: float) -> float:
-        self.capture.expect_disruption(1.0, "exposure change")   # the camera's stream stalls briefly
+        self.capture.expect_disruption(1.0, "exposure change")  # the camera's stream stalls briefly
         self.exposure_ms = self.control.set_manual_exposure(exposure_ms)
         self.events.log("exposure_set", exposure_ms=self.exposure_ms)
         return self.exposure_ms
@@ -91,16 +107,33 @@ class Session:
         path = recordings_dir(self.cfg) / (f"{stamp}-{slug}" if slug else stamp)
         info = self.source.info
         meta: dict[str, Any] = {
-            "name": name, "notes": notes, "source": info.name, "source_details": _jsonable(info.details),
-            "exposure_ms": self.exposure_ms, "config": self.cfg.model_dump(), "calibration": self.calibration.model_dump(),
+            "name": name,
+            "notes": notes,
+            "source": info.name,
+            "source_details": _jsonable(info.details),
+            "exposure_ms": self.exposure_ms,
+            "config": self.cfg.model_dump(),
+            "calibration": self.calibration.model_dump(),
         }
-        self._writer = RecordingWriter(path, info.width, info.height, info.fps, meta=meta,
-                                       zstd_level=self.cfg.recording.zstd_level, queue_frames=self.cfg.recording.queue_frames)
+        self._writer = RecordingWriter(
+            path,
+            info.width,
+            info.height,
+            info.fps,
+            meta=meta,
+            zstd_level=self.cfg.recording.zstd_level,
+            queue_frames=self.cfg.recording.queue_frames,
+        )
         self._rec_queue = self.capture.subscribe("recorder", self.cfg.recording.queue_frames)
         stats = self.capture.stats()
-        self._rec_baseline = (stats.missing, stats.source.driver_dropped + stats.source.queue_dropped)
+        self._rec_baseline = (
+            stats.missing,
+            stats.source.driver_dropped + stats.source.queue_dropped,
+        )
         self._rec_stop.clear()
-        self._rec_thread = threading.Thread(target=self._record_loop, name="record-feed", daemon=True)
+        self._rec_thread = threading.Thread(
+            target=self._record_loop, name="record-feed", daemon=True
+        )
         self._rec_thread.start()
         self.recording_path = path
         self.events.log("recording_start", path=str(path))
@@ -119,8 +152,13 @@ class Session:
     def recording_status(self) -> dict[str, Any]:
         if self._writer is None:
             return {}
-        return {"frames": self._writer.frames_written, "megabytes": self._writer.bytes_written / 1e6,
-                "backlog": self._writer.backlog, "not_recorded": self._writer.dropped + (self._rec_queue.dropped if self._rec_queue is not None else 0)}
+        return {
+            "frames": self._writer.frames_written,
+            "megabytes": self._writer.bytes_written / 1e6,
+            "backlog": self._writer.backlog,
+            "not_recorded": self._writer.dropped
+            + (self._rec_queue.dropped if self._rec_queue is not None else 0),
+        }
 
     def stop_recording(self) -> dict[str, Any]:
         # FrameQueue has a length, so an empty queue is falsy: compare with None explicitly.
@@ -132,13 +170,21 @@ class Session:
         stats = self.capture.stats()
         summary = {
             "frames_missing_during_recording": stats.missing - self._rec_baseline[0],
-            "source_drops_during_recording": stats.source.driver_dropped + stats.source.queue_dropped - self._rec_baseline[1],
+            "source_drops_during_recording": stats.source.driver_dropped
+            + stats.source.queue_dropped
+            - self._rec_baseline[1],
             "feed_queue_dropped": self._rec_queue.dropped,
         }
         writer, self._writer = self._writer, None
         writer.close(summary)
-        summary.update({"path": str(writer.path), "frames": writer.frames_written, "megabytes": round(writer.bytes_written / 1e6, 1),
-                        "not_recorded": writer.dropped + self._rec_queue.dropped})
+        summary.update(
+            {
+                "path": str(writer.path),
+                "frames": writer.frames_written,
+                "megabytes": round(writer.bytes_written / 1e6, 1),
+                "not_recorded": writer.dropped + self._rec_queue.dropped,
+            }
+        )
         self.events.log("recording_stop", **summary)
         self._rec_queue = None
         return summary
@@ -146,7 +192,9 @@ class Session:
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items() if k not in ("config", "calibration")}
+        return {
+            str(k): _jsonable(v) for k, v in value.items() if k not in ("config", "calibration")
+        }
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     return value if isinstance(value, (str, int, float, bool, type(None))) else str(value)

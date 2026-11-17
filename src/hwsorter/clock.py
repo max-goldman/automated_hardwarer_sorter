@@ -4,6 +4,7 @@ Live runs use MonotonicClock (the same host clock the macOS camera stamps frames
 Replay and tests use ManualClock, advanced by frame timestamps, so recorded runs replay
 deterministically at any speed.
 """
+
 from __future__ import annotations
 
 import threading

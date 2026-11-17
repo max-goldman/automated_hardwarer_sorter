@@ -1,7 +1,8 @@
 """Video display widget: shows a mono frame scaled to fit, with an overlay drawn in image pixels."""
+
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 from PySide6.QtCore import QRectF, Qt
@@ -19,12 +20,14 @@ class VideoWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_frame(self, array: np.ndarray) -> None:
-        self._array = np.ascontiguousarray(array)   # keep the pixels alive while Qt draws them
+        self._array = np.ascontiguousarray(array)  # keep the pixels alive while Qt draws them
         height, width = self._array.shape
-        self._image = QImage(self._array.data, width, height, width, QImage.Format.Format_Grayscale8)
+        self._image = QImage(
+            self._array.data, width, height, width, QImage.Format.Format_Grayscale8
+        )
         self.update()
 
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+    def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(24, 24, 24))
         if self._image is None:

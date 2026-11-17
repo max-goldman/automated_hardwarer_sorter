@@ -1,4 +1,5 @@
 """Replay a recording as a FrameSource, in real time or as fast as the consumer reads."""
+
 from __future__ import annotations
 
 import time
@@ -27,8 +28,12 @@ class ReplaySource(FrameSource):
         self._t0_rec: int | None = None
         self._stats = SourceStats()
         self.info = SourceInfo(
-            name=f"replay:{Path(path).name}", width=self.reader.width, height=self.reader.height,
-            fps=self.reader.fps, live=False, details={"recording": str(path), "realtime": realtime, **self.reader.meta},
+            name=f"replay:{Path(path).name}",
+            width=self.reader.width,
+            height=self.reader.height,
+            fps=self.reader.fps,
+            live=False,
+            details={"recording": str(path), "realtime": realtime, **self.reader.meta},
         )
 
     def start(self) -> None:
@@ -41,15 +46,22 @@ class ReplaySource(FrameSource):
             if not self._loop or n == 0:
                 raise EndOfStream
             period_ns = int(1e9 / self.reader.fps)
-            span = int(self.reader.index[-1]["t_capture_ns"] - self.reader.index[0]["t_capture_ns"]) + period_ns
+            span = (
+                int(self.reader.index[-1]["t_capture_ns"] - self.reader.index[0]["t_capture_ns"])
+                + period_ns
+            )
             self._lap_offset_ns += span
             self._seq_offset += int(self.reader.index[-1]["seq"] - self.reader.index[0]["seq"]) + 1
             self._i = 0
         frame = self.reader.read(self._i)
         self._i += 1
         if self._lap_offset_ns:
-            frame = Frame(frame.seq + self._seq_offset, frame.t_capture_ns + self._lap_offset_ns,
-                          frame.t_arrival_ns + self._lap_offset_ns, frame.image)
+            frame = Frame(
+                frame.seq + self._seq_offset,
+                frame.t_capture_ns + self._lap_offset_ns,
+                frame.t_arrival_ns + self._lap_offset_ns,
+                frame.image,
+            )
         if self._realtime:
             if self._t0_wall is None:
                 self._t0_wall, self._t0_rec = time.monotonic(), frame.t_capture_ns

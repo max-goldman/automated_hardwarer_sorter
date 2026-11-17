@@ -3,9 +3,10 @@
 Only the calibration tool writes this file. Large arrays (the flat-field image) are saved
 beside it as .npy files and referenced by name.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
@@ -34,15 +35,15 @@ class ScaleCalibration(_Part):
     camera_matrix: list[list[float]]
     dist_coeffs: list[float]
     homography: list[list[float]]
-    px_per_in: float                 # at the image centre
-    px_per_in_min: float             # over the view; a wide spread means the camera is tilted
+    px_per_in: float  # at the image centre
+    px_per_in_min: float  # over the view; a wide spread means the camera is tilted
     px_per_in_max: float
     reprojection_rms_px: float
     plane_rms_in: float
     views: int
     corners: int
-    mirrored: bool                   # the target was only readable flipped left-right
-    target_scale_correction: float   # measured printed bar length / nominal
+    mirrored: bool  # the target was only readable flipped left-right
+    target_scale_correction: float  # measured printed bar length / nominal
     measured_utc: str
 
 
@@ -51,7 +52,7 @@ class RoiCalibration(_Part):
     bottom: int
     left: int
     right: int
-    source: str                      # "auto" or "manual"
+    source: str  # "auto" or "manual"
 
 
 class FocusCalibration(_Part):
@@ -84,11 +85,15 @@ class Calibration(_Part):
     flatfield_file: str | None = None
 
     def missing(self) -> list[str]:
-        return [name for name in ("scale", "roi", "focus", "exposure", "belt") if getattr(self, name) is None]
+        return [
+            name
+            for name in ("scale", "roi", "focus", "exposure", "belt")
+            if getattr(self, name) is None
+        ]
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def calibration_path(machine: str | None = None, root: Path | None = None) -> Path:

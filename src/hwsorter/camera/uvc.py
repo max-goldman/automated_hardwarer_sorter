@@ -11,6 +11,7 @@ Measured on the Innomaker U20CAM-9281M (Sonix 0c45:636d):
     so every write is verified by read-back and retried
   * the gain control accepts values but does not change the image
 """
+
 from __future__ import annotations
 
 import struct
@@ -51,7 +52,9 @@ class UvcControl(CameraControl):
 
     def _find_units(self) -> tuple[int, int, int]:
         cfg = self._dev.get_active_configuration()
-        vc = next((i for i in cfg if i.bInterfaceClass == 0x0E and i.bInterfaceSubClass == 0x01), None)
+        vc = next(
+            (i for i in cfg if i.bInterfaceClass == 0x0E and i.bInterfaceSubClass == 0x01), None
+        )
         if vc is None:
             raise CameraError("camera has no UVC VideoControl interface")
         camera_terminal, processing_unit = 1, 2
@@ -84,8 +87,12 @@ class UvcControl(CameraControl):
         with self._lock:
             try:
                 self._dev.ctrl_transfer(
-                    0x21, _SET_CUR, selector << 8, (entity << 8) | self._vc_if,
-                    struct.pack(fmt, value), timeout=1000,
+                    0x21,
+                    _SET_CUR,
+                    selector << 8,
+                    (entity << 8) | self._vc_if,
+                    struct.pack(fmt, value),
+                    timeout=1000,
                 )
             except self._usb_core.USBError as exc:
                 raise CameraError(f"UVC write failed: {exc}") from exc

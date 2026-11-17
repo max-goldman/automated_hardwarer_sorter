@@ -4,6 +4,7 @@ Layering: built-in defaults < config/default.toml < config/local.toml < explicit
 Calibration results live separately (see hwsorter.calibration.store) so tools never
 rewrite hand-edited files.
 """
+
 from __future__ import annotations
 
 import os
@@ -120,7 +121,13 @@ def machine_name() -> str:
     if not raw and sys.platform == "darwin":
         # platform.node() on macOS can be a network-assigned name that changes between networks.
         try:
-            raw = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True, timeout=2).stdout.strip()
+            raw = subprocess.run(
+                ["scutil", "--get", "LocalHostName"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            ).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             raw = ""
     raw = raw or platform.node() or "machine"
