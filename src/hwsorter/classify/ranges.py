@@ -9,6 +9,9 @@ from hwsorter.classify.library import PartsLibrary
 from hwsorter.config import ClassifyConfig
 from hwsorter.contracts import Classification, FusedFeatures, PartClass, TrackFlag, Verdict
 
+_CLAMP = 1e6
+_NO_FLAGS = TrackFlag(0)
+
 
 class Classifier(Protocol):
     def classify(self, fused: FusedFeatures, flags: TrackFlag) -> Classification: ...
@@ -23,40 +26,47 @@ class RangeClassifier:
     def score_pose(
         ranges: dict[str, tuple[float, float]], fused: FusedFeatures
     ) -> tuple[float, str | None]:
-        """Worst-feature score (0 centre, 1 range edge). NaN or missing features are skipped.
-        Fewer than half the pose's features applicable gives inf (not scorable)."""
-        worst, worst_name, used = 0.0, None, 0
+        """Worst-feature score (0 centre, 1 range edge, >1 outside).
+
+        NaN rule (one, consistent): a feature the pose requires whose fused value is NaN or
+        missing means "unavailable", so the pose cannot be shown to fit: it scores inf (and that
+        feature is the worst feature). NaN never passes as a fit and never raises. Features the
+        pose does not list are ignored, so NaNs in unrelated features (e.g. bolt-only
+        features on a nut) do no harm.
+        """
+        worst, worst_name = 0.0, None
         for name, (lo, hi) in ranges.items():
             v = fused.median.get(name, math.nan)
             if not math.isfinite(v):
-                continue
-            used += 1
+                return math.inf, name
             s = abs(v - (lo + hi) / 2.0) / ((hi - lo) / 2.0)
             if worst_name is None or s > worst:
                 worst, worst_name = s, name
-        if used == 0 or used * 2 < len(ranges):
-            return math.inf, None
         return worst, worst_name
 
-    def classify(self, fused: FusedFeatures, flags: TrackFlag = TrackFlag(0)) -> Classification:
+    def classify(self, fused: FusedFeatures, flags: TrackFlag = _NO_FLAGS) -> Classification:
+        cfg = self.cfg
         best: dict[PartClass, tuple[float, str, str | None]] = {}
+        fitting: list[tuple[PartClass, str]] = []
         for pc, spec in self.library.parts.items():
             for pose, ranges in spec.poses.items():
                 score, wf = self.score_pose(ranges, fused)
+                if score <= cfg.confidence_threshold:
+                    fitting.append((pc, pose))
                 if pc not in best or score < best[pc][0]:
                     best[pc] = (score, pose, wf)
         ranked = sorted(best.items(), key=lambda kv: kv[1][0])
-        top_pc, (score, pose, wf) = ranked[0]
+        _, (score, pose, wf) = ranked[0]
         runner_up = ranked[1][1][0] if len(ranked) > 1 else math.inf
-        cfg = self.cfg
 
         def result(verdict: Verdict, pc: PartClass | None = None) -> Classification:
+            # inf (unscorable) is clamped to a finite value so decision logs stay valid JSON.
             return Classification(
                 verdict=verdict,
                 part_class=pc,
                 pose=pose if math.isfinite(score) else None,
-                score=score,
-                runner_up_score=runner_up,
+                score=min(score, _CLAMP),
+                runner_up_score=min(runner_up, _CLAMP),
                 worst_feature=wf,
             )
 
@@ -65,10 +75,9 @@ class RangeClassifier:
         if score > cfg.out_of_scope_threshold:
             return result(Verdict.OUT_OF_SCOPE)
         if (
-            score <= cfg.confidence_threshold
-            and runner_up > cfg.confidence_threshold
+            len(fitting) == 1  # exactly one pose of one part fits
             and fused.n_frames >= cfg.min_frames
             and TrackFlag.UNSETTLED not in flags
         ):
-            return result(Verdict.CONFIDENT, top_pc)
+            return result(Verdict.CONFIDENT, fitting[0][0])
         return result(Verdict.UNRESOLVED)

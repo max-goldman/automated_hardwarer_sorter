@@ -12,6 +12,27 @@ import yaml
 
 from hwsorter.contracts import FusedFeatures, PartClass
 
+# The authoritative feature set emitted by vision/features (task 007). Library ranges are keyed
+# by these names, never by position. edge_sharpness is a focus signal, not an identity feature.
+FEATURE_NAMES = frozenset(
+    {
+        "area_in2",
+        "minrect_long_in",
+        "minrect_short_in",
+        "hull_solidity",
+        "circularity",
+        "hex_harmonic",
+        "across_flats_in",
+        "across_corners_in",
+        "shank_width_in",
+        "head_width_in",
+        "head_length_in",
+        "total_length_in",
+        "hole_kind",
+        "hole_diameter_in",
+        "edge_sharpness",
+    }
+)
 DISCRETE_FEATURES = frozenset({"hole_kind"})  # coded values: ranges are +-0.5 around the code
 SKIP_DERIVE = frozenset({"edge_sharpness"})  # focus/brightness dependent, not identity
 
@@ -36,6 +57,10 @@ def _parse_ranges(where: str, raw: Any) -> dict[str, tuple[float, float]]:
     for feat, rng in raw.items():
         if not isinstance(rng, (list, tuple)) or len(rng) != 2:
             raise ValueError(f"{where}.{feat}: range must be [lo, hi]")
+        if str(feat) not in FEATURE_NAMES:
+            raise ValueError(f"{where}.{feat}: unknown feature name")
+        if feat == "edge_sharpness":
+            raise ValueError(f"{where}.{feat}: edge_sharpness is a quality signal, not a range")
         lo, hi = float(rng[0]), float(rng[1])
         if not (math.isfinite(lo) and math.isfinite(hi)) or hi <= lo:
             raise ValueError(f"{where}.{feat}: need finite lo < hi, got [{lo}, {hi}]")
@@ -96,6 +121,8 @@ def derive_ranges(
         ranges: dict[str, list[float]] = {}
         for feat in meds[0]:
             if feat in SKIP_DERIVE:
+                continue
+            if feat not in FEATURE_NAMES:
                 continue
             vals = [m.get(feat, math.nan) for m in meds]
             if not all(math.isfinite(v) for v in vals):
