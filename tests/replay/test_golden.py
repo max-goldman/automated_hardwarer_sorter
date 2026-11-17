@@ -13,6 +13,7 @@ import pytest
 
 from hwsorter.bench import (
     GOLDEN_SCENARIOS,
+    CompareTol,
     canonical_text,
     diff_decisions,
     read_log,
@@ -39,13 +40,59 @@ def test_golden_fixtures_are_small_and_present():
 
 
 @pytest.mark.parametrize("name", GOLDEN_SCENARIOS)
-def test_pipeline_reproduces_golden_byte_for_byte(name, golden_recordings, tmp_path):
+def test_pipeline_reproduces_golden_within_tolerance(name, golden_recordings, tmp_path):
     _, records, _ = replay_decisions(
         load_config(), str(golden_recordings[name]), tmp_path / "l.jsonl"
     )
-    golden = (GOLDEN_DIR / f"{name}.jsonl").read_text()
-    assert canonical_text(records) == golden
-    assert diff_decisions(read_log(GOLDEN_DIR / f"{name}.jsonl"), records) == []
+    golden = read_log(GOLDEN_DIR / f"{name}.jsonl")
+    assert diff_decisions(golden, records, tol=CompareTol()) == []
+    # Same decision structure at the byte level: only float digits may differ across machines.
+    assert len(canonical_text(records).splitlines()) == len(golden)
+
+
+def _golden_records(name):
+    return read_log(GOLDEN_DIR / f"{name}.jsonl")
+
+
+def test_tolerant_compare_accepts_small_float_noise_and_reports_deviation():
+    recs = _golden_records("mixed_classes")
+    noisy = json.loads(json.dumps(recs))
+    part = next(r for r in noisy if r["kind"] == "part")
+    key = next(k for k, v in part["median"].items() if isinstance(v, float))
+    part["median"][key] += 2e-5
+    dev = [0.0]
+    assert diff_decisions(recs, noisy, tol=CompareTol(), dev=dev) == []
+    assert 1e-5 < dev[0] < 1e-4
+    assert diff_decisions(recs, noisy)  # strict (default) still sees it
+
+
+def test_tolerant_compare_fails_on_decision_and_large_float_changes():
+    recs = _golden_records("mixed_classes")
+    bad = json.loads(json.dumps(recs))
+    group = next(r for r in bad if r["kind"] == "group")
+    group["output"] = "misc" if group["output"] != "misc" else "rework"
+    assert any(".output" in p for p in diff_decisions(recs, bad, tol=CompareTol()))
+
+    bad = json.loads(json.dumps(recs))
+    part = next(r for r in bad if r["kind"] == "part")
+    part["part_class"] = "something_else"
+    assert diff_decisions(recs, bad, tol=CompareTol())
+
+    bad = json.loads(json.dumps(recs))
+    part = next(r for r in bad if r["kind"] == "part")
+    key = next(k for k, v in part["median"].items() if isinstance(v, float))
+    part["median"][key] += 0.01
+    assert diff_decisions(recs, bad, tol=CompareTol())
+
+    bad = json.loads(json.dumps(recs))
+    next(r for r in bad if r["kind"] == "send")["t_send_ns"] += 5000
+    assert diff_decisions(recs, bad, tol=CompareTol())
+    bad = json.loads(json.dumps(recs))
+    next(r for r in bad if r["kind"] == "send")["t_send_ns"] += 500
+    assert diff_decisions(recs, bad, tol=CompareTol()) == []
+    bad = json.loads(json.dumps(recs))
+    next(r for r in bad if r["kind"] == "part")["n_frames"] += 1
+    assert diff_decisions(recs, bad, tol=CompareTol())
 
 
 def test_golden_scenes_cover_the_decision_kinds():

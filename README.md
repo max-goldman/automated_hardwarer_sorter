@@ -81,7 +81,7 @@ the features that separate each part pair, how to add a part, and the known limi
 | --- | --- |
 | `sorter run` | Runs the pipeline on a source and writes a decision log. |
 | `sorter replay <rec> --pipeline` | Runs a recording through the pipeline. |
-| `sorter replay <rec> --compare <log>` | Re-runs and diffs against a log (exit 1 on mismatch). |
+| `sorter replay <rec> --compare <log>` | Re-runs and diffs against a log (exit 1 on mismatch); floats compare within 1e-4 (`--float-tol`), `--strict` = exact. |
 | `sorter grade <session>` | Qt tool to label each detected part (ground truth). |
 | `sorter report <session>...` | Accuracy and latency report (CSV + HTML) from graded sessions. |
 | `sorter bench` | Per-stage timing, and the stride accuracy guard. |
@@ -104,7 +104,7 @@ Options (from each command's `--help`):
 
 - `run`: `--source camera|synthetic|<recording>` (default `camera`), `--headless`,
   `--realtime` or `--fast`, `--seconds`, `--parts` (synthetic part count), `--decision-log`.
-- `replay`: `--realtime`, `--pipeline`, `--decision-log` (with `--pipeline`), `--compare LOG`.
+- `replay`: `--realtime`, `--pipeline`, `--decision-log` (with `--pipeline`), `--compare LOG` (`--float-tol`, `--strict`).
 - `grade`: `--labels` (default `<session>/labels.jsonl`). `session` is a folder, a name under
   `sessions/`, or a decision-log file.
 - `report`: `--rerun`, `--out` (default: the first session folder).
