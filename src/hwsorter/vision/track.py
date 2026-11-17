@@ -79,6 +79,11 @@ class Tracker:
         self._states: dict[int, _State] = {}
 
     # ------------------------------------------------------------------ public
+    @property
+    def t0_ns(self) -> int | None:
+        """Belt-frame time origin (the first time seen), or None before the first frame."""
+        return self._t0
+
     def entry_belt_x_in(self, t_ns: int) -> float:
         """belt_x of the upstream (left) image edge at time ``t_ns``."""
         if self._t0 is None:
