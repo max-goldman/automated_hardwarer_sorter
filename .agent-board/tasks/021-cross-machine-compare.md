@@ -1,6 +1,6 @@
 # 021 cross-machine decision compare (tolerant floats)
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: none
 Branch: `task/021-cross-machine-compare` (from `develop`)
 
@@ -21,7 +21,8 @@ The golden logs were generated on the session-3 Linux x86_64 box. On the Apple M
 `uv run pytest; echo "exit=$?"` (must be fully green), `uvx ruff@0.17.5 check src tests; echo "exit=$?"`, `uvx ruff@0.17.5 format --check src tests; echo "exit=$?"`.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Worker (Sonnet), commit cd6867f, on the Apple M5: `uv run pytest` exit=0 (303 passed, 3 skipped, 1 xfailed); ruff check exit=0; format --check exit=0 (83 files). Demo: `replay --compare` on mixed_classes -> MATCH, max float deviation 2.1e-05, exit 0; with `--strict` -> MISMATCH, exit 1.
+Rules: exact for bool/str/None/keys/list lengths/ints; floats |a-b| <= 1e-4 + 1e-4*|b|, NaN==NaN; t_send_ns/t_ref_ns/t_closed_ns +-1000 ns. CLI: `--float-tol X`, `--strict`.
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Sonnet reviewer): APPROVE. Re-ran pytest exit=0, ruff exit=0, format exit=0. OPTIONAL: int-vs-float compares tolerantly (harmless today); no end-to-end CLI test of `--compare`/`--strict`.

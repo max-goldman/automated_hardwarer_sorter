@@ -1,6 +1,6 @@
 # 019 `sorter measure`: per-part measurement diagnostic on real frames
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: none (M2/M3 merged)
 Branch: `task/019-measure-tool` (from `develop`)
 Priority: HIGH — the user is at the rig with a STATIONARY belt now and wants same-day results.
@@ -33,7 +33,8 @@ On a synthetic still scene (parts placed, belt speed effectively 0 — use `synt
 NOTE: 5 tests in tests/replay/test_golden.py fail on this Mac (cross-machine float drift; task 021 fixes them). Those 5 failing is expected; anything else failing is not.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Worker (Sonnet), commit 15b90d2: pytest exit=1 with only the 5 known golden float-drift failures (fixed by 021); test_measure.py passes; ruff check exit=0; format exit=0; `sorter measure synthetic` exit=0, six parts CONFIDENT with correct classes, all features OK.
+Orchestrator live check on the rig camera (empty belt, 8 ms exposure, uncalibrated): exit=0, 200 frames used, 0 dimmed, no parts, 1 sporadic blob ignored. A false seam was drawn at the top-right where the dark strip meets the belt (no ROI/flat-field yet): re-check after calibration.
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Sonnet reviewer): APPROVE. pytest only the 5 known failures; ruff/format exit=0; pipeline-call fidelity confirmed. OPTIONAL: `session.start()` outside the try in `_grab_camera`; sporadic clusters are only counted, not listed with positions.
