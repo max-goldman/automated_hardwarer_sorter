@@ -58,11 +58,12 @@ def run_still(
     seconds: float = 4.0,
     cfg: SorterConfig | None = None,
     session_dir: Path | None = None,
+    log_path: Path | None = None,
 ) -> Run:
     cal, flat = rig
     cfg = cfg or stationary_cfg()
     renderer = SyntheticRenderer(SCENE, parts, hands)
-    log, adapter = EventLog(), MockSerialAdapter()
+    log, adapter = EventLog(log_path), MockSerialAdapter()
     pl = Pipeline(
         cfg,
         cal,
@@ -80,6 +81,7 @@ def run_still(
         img = renderer.render(i / SCENE.fps, i) if i % cfg.pipeline.frame_stride == 0 else dummy
         snaps.append(pl.process(Frame(i, t, t, img)))
     pl.close()
+    log.close()
     return Run(pl, log, adapter, snaps)
 
 
@@ -150,6 +152,73 @@ def test_pair_then_removal_redecides_the_remaining_part(rig):
     assert len(run.records("part")) == 2  # the bolt is not logged a second time
     ids = [g["group_id"] for g in run.records("group")]
     assert ids == [1, 2]
+    assert [g["supersedes"] for g in run.records("group")] == [[], [1]]
+
+
+def test_swap_before_measure_is_decided_as_the_new_part(rig):
+    # A is taken away under a hand before it settles; B is put down in its place. B must be
+    # measured on its own (a fresh track), never fused with A's early frames.
+    parts = [
+        still("bolt_025", 0.4, 1.75, off=0.9),
+        still("washer_0375", 1.0, 1.75),
+    ]
+    run = run_still(rig, parts, [HandSpec(0.7, 1.7, 1.75, y_in=1.2)], seconds=4.0)
+    assert run.groups() == [([2], "washer_0375")]
+    assert [p["part_class"] for p in run.records("part")] == ["washer_0375"]
+
+
+def test_decision_waits_after_a_hand_leaves(rig):
+    run = run_still(
+        rig, [still("nut_025", 0.3, 1.75)], [HandSpec(0.6, 1.0, 1.75, y_in=1.2)], seconds=3.0
+    )
+    (group,) = run.records("group")
+    after = round(load_config().stationary.after_hand_s * 1e9)
+    assert group["t_closed_ns"] >= START_NS + round(1.0e9) + after - 20_000_000
+
+
+def test_superseded_decisions_are_counted_once(rig, tmp_path):
+    from hwsorter.grading import KIND_CLASS, Label, LabelStore, load_session
+    from hwsorter.grading.grade import grade_session
+    from hwsorter.report import build_report, load_stats
+
+    parts = [still("bolt_025", 0.4, 1.0), still("washer_025", 0.4, 2.5, off=2.6)]
+    log_path = tmp_path / "decisions" / "decision_log.jsonl"
+    run_still(rig, parts, seconds=4.6, log_path=log_path)
+    session = load_session(tmp_path)
+    assert [g.output for g in session.groups] == ["bolt_025"]  # only the latest decision
+    assert [g.output for g in session.history] == ["rework"]
+    assert session.group_of(1).group_id == 2 and session.group_of(2) is None
+    store = LabelStore(tmp_path / "labels.jsonl")
+    for p, cls in zip(session.parts, ("bolt_025", "washer_025"), strict=True):
+        store.put(
+            Label(
+                key=f"{p.t_ref_ns}:{p.belt_x_lead_in:.3f}",
+                t_ref_ns=p.t_ref_ns,
+                belt_x_lead_in=p.belt_x_lead_in,
+                belt_x_trail_in=p.belt_x_trail_in,
+                kind=KIND_CLASS,
+                track_id=p.track_id,
+                part_class=cls,
+            )
+        )
+    store.set_parts_fed(2)
+    assert len(grade_session(session, store).groups) == 1
+    report = build_report([load_stats(tmp_path)])
+    assert report.n_groups == 1 and report.accuracy == 1.0
+
+
+def test_config_cross_checks():
+    base = load_config().model_dump()
+
+    def bad(**kw):
+        data = {**base, "stationary": {**base["stationary"], **kw}}
+        with pytest.raises(ValueError):
+            SorterConfig.model_validate(data)
+
+    bad(move_tol_in=0.2)  # not below relocate_in
+    bad(relocate_in=0.6)  # not below track.gate_in
+    bad(give_up_s=0.1)  # below settle_s
+    bad(missed_s=0.0)
 
 
 def test_moved_part_is_remeasured_as_a_new_track(rig):

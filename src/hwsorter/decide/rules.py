@@ -161,6 +161,8 @@ class StationaryDecider:
         self._parts: dict[int, PartResult] = {}
         self._decided: dict[tuple[int, ...], GroupDecision] = {}
         self._next_group_id = 1
+        # new group_id -> ids of earlier decisions it replaces (they share a part with it)
+        self.superseded: dict[int, tuple[int, ...]] = {}
 
     def add(self, part: PartResult) -> None:
         self._parts[part.track_id] = part
@@ -187,6 +189,7 @@ class StationaryDecider:
             grouper.add(p)
         clusters = grouper.flush()  # most downstream first, members in track-id order
         keys = {tuple(p.track_id for p in c) for c in clusters}
+        gone = {k: d for k, d in self._decided.items() if k not in keys}
         self._decided = {k: d for k, d in self._decided.items() if k in keys}
         out: list[GroupDecision] = []
         for members in sorted(clusters, key=lambda c: c[0].track_id):
@@ -205,6 +208,9 @@ class StationaryDecider:
                 t_closed_ns=t_ns,
             )
             self._next_group_id += 1
+            old = tuple(g.group_id for k, g in gone.items() if set(k) & set(key))
+            if old:
+                self.superseded[d.group_id] = old
             self._decided[key] = d
             out.append(d)
         return out

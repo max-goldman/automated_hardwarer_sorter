@@ -346,6 +346,16 @@ class Tracker:
                 valid = False
         t = s.track
         if (
+            self.st is not None
+            and s.anchor_contour is None
+            and s.hist
+            and not merged
+            and (d.t_ns - s.hist[-1].t_ns) / NS_PER_S >= _REAPPEAR_S
+        ):
+            # An unmeasured track back after a gap (a hand held it, or it was swapped meanwhile):
+            # its earlier frames may show another part, so finish it and measure afresh.
+            s.displaced = True
+        if (
             s.anchor_contour is not None
             and s.hist
             and not merged

@@ -141,8 +141,8 @@ same, and a moving session log omits the new config keys so it stays byte-identi
   finishes only when its part is removed (unseen for `stationary.missed_s` with no hand in
   view), never by leaving the view; only the last 60 observations are kept.
 - **Hand / arm.** A blob that touches the image or belt edge and is larger than
-  `stationary.max_part_area_in2` (default 1.0 in^2; the largest in-scope part, a bolt, is about
-  0.35 in^2 and a hand is tens) is dropped before tracking: never a track, never a part. While
+  `stationary.max_part_area_in2` (default 1.0 in^2; the largest in-scope part, bolt_0375 (shank 0.375 x 1.0 in
+  plus a 0.65 x 0.234 in head, from `synthetic.PART_DIMS`), is about 0.53 in^2 and a hand is tens) is dropped before tracking: never a track, never a part. While
   one is in view the tracks it may cover are held (not finished) and no decision is made.
 - **Measured.** A track is fused and classified once, when it has `pipeline.max_feature_frames`
   features (or `classify.min_frames` after `stationary.settle_s`) and its last `track.settle_frames`

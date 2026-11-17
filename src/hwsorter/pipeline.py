@@ -316,6 +316,7 @@ class Pipeline:
         self.speed_in_s = 0.0 if self.stationary else float(cfg.belt.speed_in_s)
         self._roi = roi
         self._hand = False
+        self._hand_last_ns = -(10**18)  # stationary: last time a hand was in view
         self._latency_ns = round(cfg.timing.camera_latency_ms * NS_PER_MS)
         self._pre = Preprocessor(flat, roi, cfg.segment)
         self._seam = SeamHandler(cfg.seam)
@@ -417,6 +418,8 @@ class Pipeline:
         t = self._tick("seam", t)
         if self.stationary:
             blobs, self._hand = self._split_hand(blobs)
+            if self._hand:
+                self._hand_last_ns = t_cap
         finished = self._tracker.update(frame.seq, t_cap, blobs, hold=self._hand)
         if not self._session_started:
             self._write_session_start()
@@ -622,7 +625,8 @@ class Pipeline:
                 self._measure(track, st)
             else:
                 pending = True
-        if not self._hand and not pending:
+        hand_clear = t_cap - self._hand_last_ns >= round(stc.after_hand_s * NS_PER_S)
+        if not self._hand and hand_clear and not pending:
             now = self.clock.now_ns()
             for d in self._sdec.update(now):
                 self._emit_stationary(d, now)
@@ -665,6 +669,7 @@ class Pipeline:
                     "t_ref_ns": d.t_ref_ns,
                     "x_lead_in_at_ref": d.x_lead_in_at_ref,
                     "t_closed_ns": d.t_closed_ns,
+                    "supersedes": list(self._sdec.superseded.get(d.group_id, ())),
                     "stationary": True,  # decided at once on a stopped belt; no send record follows
                     "timings": {"latency_ms": (now_ns - d.t_ref_ns) / NS_PER_MS},
                 }

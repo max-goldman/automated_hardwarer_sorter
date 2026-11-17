@@ -177,7 +177,8 @@ class StationaryConfig(_Section):
     )  # a measured part this far from where it was measured moved
     max_part_area_in2: float = Field(1.0, gt=0)  # edge-touching blob above this is a hand/arm
     settle_s: float = Field(0.5, ge=0)  # a part is measured this long after first sighting
-    missed_s: float = Field(0.5, ge=0)  # unseen this long (and no hand) = the part was removed
+    missed_s: float = Field(0.5, gt=0)  # unseen this long (and no hand) = the part was removed
+    after_hand_s: float = Field(0.3, ge=0)  # no decision until a hand has been gone this long
     give_up_s: float = Field(3.0, gt=0)  # an unmeasurable track is finalized after this long
 
 
@@ -200,6 +201,18 @@ class SorterConfig(_Section):
     scheduler: SchedulerConfig = SchedulerConfig()
     pipeline: PipelineConfig = PipelineConfig()
     stationary: StationaryConfig = StationaryConfig()
+
+    @model_validator(mode="after")
+    def _check_stationary(self) -> SorterConfig:
+        st = self.stationary
+        if not st.move_tol_in < st.relocate_in < self.track.gate_in:
+            raise ValueError(
+                "stationary: need move_tol_in < relocate_in < track.gate_in, got "
+                f"{st.move_tol_in} / {st.relocate_in} / {self.track.gate_in}"
+            )
+        if st.give_up_s < st.settle_s:
+            raise ValueError("stationary.give_up_s must be >= stationary.settle_s")
+        return self
 
     @model_validator(mode="after")
     def _check_feature_budget(self) -> SorterConfig:

@@ -127,7 +127,8 @@ queue_frames = 120              # pipeline input queue depth, frames
 # nothing is timed, each settled part is decided once and the decision is shown immediately.
 move_tol_in = 0.05          # a valid observation moved less than this (inches) since the last one
 relocate_in = 0.15          # a measured part seen this far from where it was measured was moved: re-measure
-max_part_area_in2 = 1.0     # an image-edge-touching blob larger than this is a hand/arm (largest part ~0.6 in^2)
+max_part_area_in2 = 1.0     # an edge-touching blob larger than this is a hand/arm (largest part, bolt_0375, ~0.53 in^2)
 settle_s = 0.5              # a part is measured this long after it is first seen (or at max_feature_frames)
-missed_s = 0.5              # a part unseen this long, with no hand in view, was removed
+missed_s = 0.5              # a part unseen this long, with no hand in view, was removed (> 0)
+after_hand_s = 0.3          # no decision until a hand has been out of view this long
 give_up_s = 3.0             # a track that never measures cleanly is finalized after this long
