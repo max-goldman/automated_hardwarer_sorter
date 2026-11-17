@@ -73,6 +73,15 @@ min_area_in2 = 0.01         # smaller blobs are dust (square inches)
 close_kernel_px = 3         # morphological close kernel, pixels
 coarse_scale = 2            # 1 = old full-frame path; 2 = two-stage coarse-then-crop
 crop_pad_px = 16            # full-res padding around the coarse blob crop (>= 12)
+illum_correction = true     # divide out a per-frame smooth illumination surface fitted to belt cells
+illum_degree = 4            # 2-D polynomial degree of that surface
+illum_cell_px = 32          # cell size for the robust (median) belt samples, px
+illum_reject = 0.03         # cells this far from the fitted surface are not belt (parts, shadows)
+illum_min_belt_frac = 0.3   # fewer belt cells than this: keep the previous frame's surface
+shadow_trim = true          # peel attached soft shadows/reflections off the part outline
+shadow_trim_depth = 0.18    # only pixels within this of the belt level (|flat - 1|) can be peeled
+shadow_soft_gradient = 0.02 # |grad flat| per px below this is soft (shadow); part edges are sharper
+edge_grow_gradient = 0.03   # weaker (low-contrast) edges connected to a part join it; 0 = off
 
 [seam]
 enabled = true

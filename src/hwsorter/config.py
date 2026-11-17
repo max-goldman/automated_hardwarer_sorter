@@ -103,6 +103,18 @@ class SegmentConfig(_Section):
     close_kernel_px: int = Field(3, ge=0)  # morphological close kernel size, px
     coarse_scale: int = Field(2, ge=1, le=2)  # 1 = old full-frame path; 2 = coarse-then-crop
     crop_pad_px: int = Field(16, ge=12)  # full-res padding around the coarse blob crop, px
+    # Per-frame low-frequency illumination correction after the flat-field (task 023): a
+    # polynomial surface fitted to belt-only cell medians is divided out.
+    illum_correction: bool = True
+    illum_degree: int = Field(4, ge=0, le=6)  # 2-D polynomial degree of the illumination surface
+    illum_cell_px: int = Field(32, ge=8)  # cell size for the robust belt medians, px
+    illum_reject: float = Field(0.03, gt=0)  # cells this far from the fitted surface are not belt
+    illum_min_belt_frac: float = Field(0.3, gt=0, le=1)  # fewer belt cells: reuse the last surface
+    # Attached soft-shadow trimming (task 023): shallow, soft pixels the belt reaches are peeled.
+    shadow_trim: bool = True
+    shadow_trim_depth: float = Field(0.18, gt=0)  # |flat - 1| below this can be shadow/reflection
+    shadow_soft_gradient: float = Field(0.02, gt=0)  # |grad flat| per px below this is soft
+    edge_grow_gradient: float = Field(0.03, ge=0)  # weaker edges connected to a part join it; 0=off
 
 
 class SeamConfig(_Section):
