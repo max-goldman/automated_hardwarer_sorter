@@ -81,7 +81,7 @@ def make_track(
 
 
 def make_fused(n_frames: int = 5, on_seam: bool = False, **median: float) -> FusedFeatures:
-    med = {"area_in2": 0.2, "length_in": 0.6, "width_in": 0.4, **median}
+    med = {"area_in2": 0.2, "minrect_long_in": 0.6, "minrect_short_in": 0.4, **median}
     return FusedFeatures(
         median=med, spread={k: 0.0 for k in med}, n_frames=n_frames, on_seam=on_seam
     )
@@ -155,7 +155,7 @@ def make_observation(seq: int = 0, t_capture_ns: int = 0, cx_in: float = 0.0, **
 
 
 def make_feature_vector(valid: bool = True, **values: float) -> FeatureVector:
-    vals = {"area_in2": 0.2, "length_in": 0.6, "width_in": 0.4, **values}
+    vals = {"area_in2": 0.2, "minrect_long_in": 0.6, "minrect_short_in": 0.4, **values}
     return FeatureVector(values=vals, valid=valid)
 
 

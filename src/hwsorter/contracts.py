@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum, Flag, auto
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
@@ -78,6 +79,14 @@ def flag_names(flags: TrackFlag) -> list[str]:
     return [f.name for f in TrackFlag if f.name and f in flags]
 
 
+def parse_flags(names: Iterable[str]) -> TrackFlag:
+    """Inverse of ``flag_names``: names from a logged ``flags`` list back to a TrackFlag."""
+    out = TrackFlag(0)
+    for n in names:
+        out |= TrackFlag[n]
+    return out
+
+
 class MissReason(str, Enum):  # noqa: UP042
     NONE = "none"
     LATE_DECISION = "late_decision"
@@ -115,7 +124,10 @@ class Blob:
 class SeamObs:
     """Belt seam observation. ``band_px`` is the (4, 2) px corner polygon of the seam band.
     ``angle_deg`` is measured in degrees from the travel axis (+x) toward +y (image y down),
-    the same convention as synthetic.py and ``seam.angle_deg`` in config (default 50)."""
+    the same convention as synthetic.py and ``seam.angle_deg`` in config (default 50).
+    ``x_center_px`` is the band centre at the image's vertical middle row (height / 2).
+    ``width_px`` is measured perpendicular to the band (across it), like ``seam.width_in``
+    (0.2 in); along x the band is 0.2 / sin(50 deg), about 0.26 in, wide."""
 
     present: bool
     x_center_px: float
@@ -246,7 +258,11 @@ class ScheduledOutput:
 class SendRecord:
     """Result of a send. ``t_actual_ns`` (Clock domain) is when the adapter was actually called;
     on a late send it is after ``scheduled.t_send_ns`` and ``miss`` says why (LATE_DECISION when
-    the decision arrived after the send time, so it was sent immediately)."""
+    the decision arrived after the send time, so it was sent immediately).
+
+    The Scheduler is the only writer of the decision-log "send" record: it writes exactly one
+    per ScheduledOutput after ``adapter.send`` returns (miss=ADAPTER_ERROR if it raised).
+    Adapters only deliver the output and never log the send record themselves."""
 
     scheduled: ScheduledOutput
     t_actual_ns: int
@@ -263,7 +279,10 @@ class Classifier(Protocol):
 
 @runtime_checkable
 class OutputAdapter(Protocol):
-    """Sends one collector command. Called from the scheduler thread only."""
+    """Sends one collector command. Called from the scheduler thread only.
+
+    Adapters do I/O only. They never write the decision log: the Scheduler writes the single
+    "send" record (with ``miss``) for every ScheduledOutput, whichever adapter is used."""
 
     def send(self, o: ScheduledOutput, t_actual_ns: int) -> None: ...
 
@@ -281,12 +300,47 @@ class OutputAdapter(Protocol):
 # are removed: top-level ``t_ns`` and every key in DETERMINISM_IGNORE_KEYS (at any depth), and
 # records of kind in DETERMINISM_IGNORE_KINDS ("log_open" carries wall_time). In session_start,
 # ``session`` and ``source`` are names/paths and are also ignored (listed in the key set).
+# ``t_actual_ns`` (send time under ManualClock depends on thread scheduling) is ignored too.
+# The comparison is PER KIND: group the records by ``kind``, then compare the sequence of each
+# kind in file order. Never diff whole files: "send" lines come from the scheduler thread and
+# "part"/"group" from the pipeline thread, so their interleaving is not reproducible.
+# ``normalise_for_compare`` does exactly this.
 # Group membership comes only from GroupRecord.member_track_ids.
 
 DETERMINISM_IGNORE_KEYS = frozenset(
-    {"t_ns", "timings", "wall_time", "session", "source", "t_start_ns", "t_end_ns", "duration_ns"}
+    {
+        "t_ns",
+        "timings",
+        "wall_time",
+        "session",
+        "source",
+        "t_start_ns",
+        "t_end_ns",
+        "duration_ns",
+        "t_actual_ns",
+    }
 )
 DETERMINISM_IGNORE_KINDS = frozenset({"log_open"})
+
+
+def _strip_ignored(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _strip_ignored(v) for k, v in obj.items() if k not in DETERMINISM_IGNORE_KEYS}
+    if isinstance(obj, list):
+        return [_strip_ignored(v) for v in obj]
+    return obj
+
+
+def normalise_for_compare(records: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Determinism view of a decision log: drop ignored kinds and keys (at any depth), then group
+    by ``kind`` keeping file order within each kind. Two runs are equal iff these dicts are equal."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    for rec in records:
+        kind = rec.get("kind")
+        if kind in DETERMINISM_IGNORE_KINDS:
+            continue
+        out.setdefault(str(kind), []).append(_strip_ignored(rec))
+    return out
 
 
 def to_log_dict(obj: Any) -> Any:
@@ -311,8 +365,21 @@ def to_log_dict(obj: Any) -> Any:
 
 
 # ``timings`` minimum keys. part: {"stages_ms": {stage: ms}, "latency_ms": float} where
-# latency_ms is the last used frame's t_capture to the group decision. group/send: {"latency_ms"}.
-# session_end: {"stages_ms": {stage: {"mean": ms, "p95": ms, "max": ms}}}.
+# latency_ms is the last used frame's t_capture to the group decision, so a part record can only
+# be written when its group closes (under ManualClock it measures belt time, not compute time).
+# group/send: {"latency_ms"}, measured from the group's t_ref_ns (group) or t_send_ns (send) to
+# the record being written. session_end: {"stages_ms": {stage: StageSummary}}.
+
+
+class StageSummary(TypedDict):
+    """Per-stage latency summary in session_end ``timings["stages_ms"]`` (all in ms)."""
+
+    count: int
+    mean: float
+    p50: float
+    p95: float
+    p99: float
+    max: float
 
 
 class PartRecord(TypedDict):
@@ -360,7 +427,8 @@ class GroupRecord(TypedDict):
 
 
 class SendLogRecord(TypedDict):
-    """kind="send": one collector command actually issued."""
+    """kind="send": one collector command actually issued. Written by the Scheduler (exactly one
+    per ScheduledOutput, after ``adapter.send`` returns); adapters never write it."""
 
     schema_version: int
     group_id: int

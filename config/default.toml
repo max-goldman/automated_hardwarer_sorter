@@ -90,8 +90,8 @@ min_frames = 5              # fewer valid frames sets TrackFlag.FEW_FRAMES
 
 [features]
 elongated_min_aspect = 1.8      # length/width above which bolt-profile features are computed
-hole_bright_threshold = 1.05    # flat above this inside a part = bright hole
-hole_dark_threshold = 0.85      # flat below this inside a part = dark bore
+hole_bright_threshold = 0.90    # flat (part/belt) above this inside a part = see-through hole (washer ~1.0)
+hole_dark_threshold = 0.30      # flat below this inside a part = dark bore (nut ~0.21; bodies >= 0.40)
 hole_min_diameter_in = 0.08     # smaller holes are noise
 min_valid_frames = 3            # fewer valid observations cannot be fused
 radial_samples = 180            # contour radial-profile samples (hex harmonic)

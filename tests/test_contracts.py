@@ -39,6 +39,8 @@ from hwsorter.contracts import (
     TrackFlag,
     Verdict,
     flag_names,
+    normalise_for_compare,
+    parse_flags,
     to_log_dict,
 )
 from hwsorter.synthetic import PART_KINDS
@@ -145,7 +147,7 @@ def test_to_log_dict_non_finite_and_enums():
     text = json.dumps(to_log_dict(make_part_result()), allow_nan=False)
     assert "NaN" not in text and "Infinity" not in text
     assert flag_names(TrackFlag(0)) == []
-    assert {"t_ns", "timings"} <= DETERMINISM_IGNORE_KEYS
+    assert {"t_ns", "timings", "t_actual_ns"} <= DETERMINISM_IGNORE_KEYS
     assert "log_open" in DETERMINISM_IGNORE_KINDS
 
 
@@ -165,3 +167,27 @@ def test_seam_defaults_match_synthetic():
     cfg = load_config()
     assert cfg.seam.angle_deg == 50.0 and cfg.seam.width_in == 0.2
     assert cfg.features.min_valid_frames >= 1
+
+
+def test_normalise_for_compare_groups_by_kind_and_ignores_timing():
+    a = [
+        {"kind": "log_open", "wall_time": "x"},
+        {"kind": "part", "t_ns": 1, "track_id": 1, "timings": {"latency_ms": 3}},
+        {"kind": "send", "t_ns": 2, "group_id": 1, "t_actual_ns": 99, "miss": "none"},
+        {"kind": "part", "t_ns": 3, "track_id": 2, "timings": {}},
+    ]
+    b = [  # different interleaving and send times
+        {"kind": "send", "t_ns": 7, "group_id": 1, "t_actual_ns": 5, "miss": "none"},
+        {"kind": "part", "t_ns": 8, "track_id": 1, "timings": {"latency_ms": 9}},
+        {"kind": "part", "t_ns": 9, "track_id": 2, "timings": {}},
+    ]
+    assert normalise_for_compare(a) == normalise_for_compare(b)
+    assert list(normalise_for_compare(a)) == ["part", "send"]
+    swapped = [b[0], b[2], b[1]]  # part order within a kind matters
+    assert normalise_for_compare(a) != normalise_for_compare(swapped)
+
+
+def test_parse_flags_roundtrip():
+    f = TrackFlag.MERGED | TrackFlag.ON_SEAM
+    assert parse_flags(flag_names(f)) == f
+    assert parse_flags([]) == TrackFlag(0)
