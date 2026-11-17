@@ -5,8 +5,9 @@ moving belt, the program finds and classifies parts, and tells the sorter where 
 goes. See `descriptions/Hardware Sorter Vision Program Project Brief.md` for the
 requirements.
 
-Status: milestone 1 (camera capture, lossless recording and replay, calibration tools, GUI).
-The vision pipeline arrives in milestones 2 and 3.
+Status: milestones 1 to 3 (camera capture, recording and replay, calibration tools, GUI, and the
+vision pipeline with grading, reporting and benchmarking). Serial output and the Linux camera
+are later milestones.
 
 ## Setup
 
@@ -72,10 +73,50 @@ folder name from `sorter recordings`, or the short name you gave `record` (folde
 
 ### Milestones 2 and 3 commands
 
-<!-- TODO (milestones 2 and 3): document the vision pipeline commands here (run, grading,
-report, bench, derive-ranges) as they are added. -->
+The vision pipeline: segment, seam, track, features, classify, decide, schedule. The design,
+the features that separate each part pair, how to add a part, and the known limits are in
+`docs/design.md`. These need no camera: use `--source synthetic` or a recording.
 
-Not yet available.
+| Command | What it does |
+| --- | --- |
+| `sorter run` | Runs the pipeline on a source and writes a decision log. |
+| `sorter replay <rec> --pipeline` | Runs a recording through the pipeline. |
+| `sorter replay <rec> --compare <log>` | Re-runs and diffs against a log (exit 1 on mismatch). |
+| `sorter grade <session>` | Qt tool to label each detected part (ground truth). |
+| `sorter report <session>...` | Accuracy and latency report (CSV + HTML) from graded sessions. |
+| `sorter bench` | Per-stage timing, and the stride accuracy guard. |
+| `sorter derive-ranges <session>...` | Builds a parts-library YAML from graded sessions. |
+
+```
+uv run sorter run --source synthetic --headless
+uv run sorter run --source synthetic --headless --parts 30 --decision-log out/log.jsonl
+uv run sorter replay my-rec --pipeline --decision-log out/log.jsonl
+uv run sorter replay my-rec --compare out/log.jsonl     # Mac vs Dell check; timings ignored
+uv run sorter grade out                                  # label parts; saves <session>/labels.jsonl
+uv run sorter report out                                 # add --rerun to re-run the pipeline first
+uv run sorter report session-a session-b --out reports
+uv run sorter bench my-rec
+uv run sorter bench --compare-strides                    # frame_stride 1 vs 2, feature frames 10 vs 20
+uv run sorter derive-ranges out
+```
+
+Options (from each command's `--help`):
+
+- `run`: `--source camera|synthetic|<recording>` (default `camera`), `--headless`,
+  `--realtime` or `--fast`, `--seconds`, `--parts` (synthetic part count), `--decision-log`.
+- `replay`: `--realtime`, `--pipeline`, `--decision-log` (with `--pipeline`), `--compare LOG`.
+- `grade`: `--labels` (default `<session>/labels.jsonl`). `session` is a folder, a name under
+  `sessions/`, or a decision-log file.
+- `report`: `--rerun`, `--out` (default: the first session folder).
+- `bench`: `recording` (name, path, or `synthetic`), `--compare-strides`, `--parts`.
+- `derive-ranges`: `--margin` (default 0.1), `--base` (library to take unseen parts from,
+  default `config/parts_library.yaml`), `--out`, `--in-place`.
+
+`derive-ranges` collects the fused feature vector of every part you labelled as an in-scope
+class and writes ranges as one pose called `measured`. It never overwrites hand edits silently:
+by default it writes `config/parts_library.derived.yaml` and refuses if that (or `--out`) already
+exists; `--in-place` is required to overwrite. Classes with no labelled examples are copied from
+the base library so the result still loads. Review the output before using it.
 
 ## Configuration
 
