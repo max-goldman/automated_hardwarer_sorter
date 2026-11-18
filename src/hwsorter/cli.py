@@ -219,6 +219,8 @@ def _run_pipeline(
 
         try:
             drive(source, pipeline, on_snapshot=on_snapshot)
+        except KeyboardInterrupt:
+            print("interrupted: closing the session")  # Ctrl-C: still write session_end
         finally:
             source.stop()
         pipeline.close()

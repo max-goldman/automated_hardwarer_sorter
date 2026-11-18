@@ -118,7 +118,8 @@ def test_record_then_replay_gives_the_same_stationary_decisions(sandbox):
     assert decisions(log) and decisions(log) == decisions(again)
 
 
-def test_ctrl_c_ends_the_run_cleanly(sandbox, monkeypatch):
+@pytest.mark.parametrize("pacing", ["--fast", "--realtime"])
+def test_ctrl_c_ends_the_run_cleanly(sandbox, monkeypatch, pacing):
     from hwsorter.status import StatusReporter
 
     calls = []
@@ -131,6 +132,6 @@ def test_ctrl_c_ends_the_run_cleanly(sandbox, monkeypatch):
 
     monkeypatch.setattr(StatusReporter, "due", interrupt)
     log = sandbox / "c" / "log.jsonl"
-    args = ["run", "--source", "synthetic", "--stationary", "--headless", "--seconds", "20"]
+    args = ["run", "--source", "synthetic", "--stationary", "--headless", pacing, "--seconds", "20"]
     assert main([*args, "--decision-log", str(log)]) == 0
     assert any(r["kind"] == "session_end" for r in records(log))
