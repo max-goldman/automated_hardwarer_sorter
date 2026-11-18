@@ -126,11 +126,12 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | 019 `sorter measure` | DONE, merged | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
 | 020 stationary-belt mode | DONE, merged (3 rounds) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
 | 021 cross-machine compare | DONE, merged |
+| 028 segment follow-ups | TODO | From the 023 review: _trim_soft peels the belt-toned bolt head facet (protect faces inside the sharp-edge hull); clamp the illumination surface; limit last-surface reuse; tighten the never-splits test. |
 | 026 tracker reappear check | TODO | Stationary: a part swapped in place within missed_s with IoU >= 0.9 (nut->washer 0.90) is kept as the same part. Compare area and hole kind on reappear. From the 023 report. |
 | 027 height/parallax correction | TODO (later) | Thick parts read +3-5% (implied camera height ~8.2 in vs the brief's ~5.9 in). Calibration-level correction; until then the ranges must allow it. User (2026-11-17): lens ~7.25 in above the belt, sensor ~8 in, consistent with the implied ~8.2 in. After 024 merges, update the brief's 'lens is about 150 mm above the belt' to ~7.25 in (184 mm). |
 | 025 run visibility | IN_PROGRESS | Live window, per-second status line (hand diagnostics), clean Ctrl-C, `--record`. User could not tell what stationary mode was doing. |
 | 024 second size = 5/16-18 | IN_PROGRESS | User decision 2026-11-17: second size is 5/16-18 (brief said 3/8 in error); nuts are nyloc. Rename PartClass *_0375 -> *_0312, library, synthetic, docs, brief. |
-| 023 real-image robustness | IN_REVIEW (Opus) | First real stationary images: uneven/drifting illumination, attached shadows, outline-noise circularity, bolt shank, washer hole level, false seam. |
+| 023 real-image robustness | DONE, merged | First real stationary images: uneven/drifting illumination, attached shadows, outline-noise circularity, bolt shank, washer hole level, false seam. |
 | 022 test isolation + measure polish | DONE, merged | Tests must ignore `config/local.toml` (this Mac has exposure_ms=8.0, which broke 2 golden CLI tests after the 021 merge). Plus 019 optional notes. | 5 golden tests fail on the M5 (float drift <= 2.1e-5, decisions identical). Tolerant compare; goldens unchanged. |
 
 Open design question for the user (not scheduled): stacked/touching parts that never separate form ONE blob -> lone part -> MISC; the brief says stacked parts go to REWORK. Candidate: a "looks like several parts" flag. Safe today (never contamination).

@@ -1,6 +1,6 @@
 # 023 real-image robustness: illumination, shadows, outline-based features, seam false positive
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: 019, 020 merged
 Branch: `task/023-real-image-robustness` (from `develop`)
 Worker: Opus (vision, real data). Reviewer: fresh Opus.
@@ -35,4 +35,4 @@ pytest fully green; ruff check + format --check exit 0; `sorter bench synthetic 
 Worker (Opus), f5b703b: pytest exit=0; ruff/format exit=0; bench PASS (per captured frame mean 4.00 -> 3.65 ms, p99 18.8 -> 16.6). Real: bolt025/nut025/washer025 CONFIDENT correct (were UNRESOLVED/OOS/OOS); the 5/16 three are UNRESOLVED against the old 3/8 library (range issue, task 024). Washer OD 0.6246/0.7517 vs calipers 0.6244/0.7508 (scale k=1.000, edge bias +-0.2 px). Thick parts +3-5% = height parallax (implied camera height ~8.2 in). Seam: 0/200 false hits on all; seam ghost fixed (min_piece_in2). Goldens regenerated (verdicts unchanged). test_six_classes_one_at_a_time: parts removed 0.6 s, because of the tracker IoU weakness (nut->washer swap IoU 0.90).
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Opus): APPROVE. Merged tree: pytest exit=0, ruff/format exit=0, 30-part run 30/30/30 0 late; bench 3.19 ms per captured frame. Reviewer's measure on real: bolt025 CONF 0.30, nut025 CONF 0.70, washer025 CONF 0.21; the 5/16 three UNRESOLVED by range only. Required follow-ups (non-blocking): (1) _trim_soft peels the belt-toned upper head facet of the 5/16 bolt (head_width 0.561 MAD 0.025 vs 0.586 with trim off): protect low-contrast faces inside the hull of the sharp-edge mask; (2) the tracker reappear check (026), incl. the hand-in-view case. Optional: clamp the illumination surface (0.7-1.3), limit reuse of the last surface, tighten test_shadow_trim_never_splits_a_blob. Notes for 024: circularity nut ~[0.88,0.96], washer ~[0.975,1.02]; thick-part ranges at apparent size (parallax +2.5-4.5%); don't separate bolt sizes on head_width/minrect_short.
