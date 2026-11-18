@@ -31,3 +31,29 @@ pytest fully green; ruff check + format --check; `sorter bench synthetic --parts
 
 ## Review Notes
 (reviewer only)
+
+## Session 4 stop (2026-11-17, user out of usage): WIP 56af8c8, NOT verified or reviewed
+Worker's final status:
+- **Done:**
+  - `segment._trim_soft` seeds the peel only from soft pixels on the window border, i.e. the open belt. A soft region sealed off by the silhouette edge and next to exactly one mask component (no bigger than it) is added to the mask (`_enclosed_faces`). Pinholes are sealed with `_TRIM_BRIDGE_PX=5`.
+  - bolt.py measures along the shank axis (`_oriented_profile`: the minAreaRect axis, corrected twice by the shank-edge slope). An ideal T-polygon gives identical values at every angle 0-165°.
+  - `hole_dark_threshold` changed from 0.30 to 0.45 (config.py + default.toml). The goldens embed the config, so they WILL change and must be regenerated with justification.
+- **Verified:** test_robustness, test_segment* and test_features* passed at 65e0b95, before the threshold change. NOT run: the full suite, goldens, bench, still-* replays.
+- **Per-frame diagnostic** (tools in `.agent-board/tools/028/`; before table in before.txt):
+  - bolt: CONFIDENT 40→129, OOS 263→100, UNRESOLVED 18→92.
+  - nut: hole_kind OOS 87→0, CONFIDENT 155→173, UNRESOLVED 135 (circularity).
+  - washer: 299/299, unchanged.
+  - No wrong-class CONFIDENT anywhere. Bolt head_width max 0.514 (the 5/16 range starts at 0.52: thin margin, watch it).
+- **head_width vs angle** (real data covers only two bins): 15-30° 0.325→0.335 (n=75); 30-45° 0.400→0.507 (n=246).
+  - Remaining bolt OOS: motion blur (4-18 px) loses the lower head facet, leaving a ~13 px gap at the head/shank corner. Bridge 15 helped the bolt (CONF 159) but made the nut rounder, so it stays at 5.
+- **Bolt UNRESOLVED:** head_length reads 0.19-0.21 against an upper bound of 0.195. That is parallax rising with x (0.172 at x≈600, 0.209 at x≈1050), so task 027, not the angle.
+- **Moving-nut root cause:** in 0-25nut1 the nyloc insert faces up. Its bore reads 0.21-0.35 of the belt level, brightest near the image centre. The stills were thread side up and read 0.09-0.14. Motion blur is minor.
+  - Circularity reads 0.957 static and ~0.965 moving, against an upper bound of 0.965. A range change to ~0.972 is out of this task's scope and needs the library safety test (nut vs washer [0.975,…]).
+- **To do (fresh worker):**
+  1. Full pytest; fix failures.
+  2. Regenerate the goldens (scripts/update_goldens.py, local.toml absent) and justify the change.
+  3. ruff; `sorter bench synthetic --parts 30`; the six still-* replays.
+  4. Synthetic tests: a belt-toned enclosed head facet, head_width at 0-180°, exactly one blob in test_shadow_trim_never_splits_a_blob.
+  5. Illumination clamp 0.7-1.3 with limited reuse of the last surface.
+  6. docs/design.md note.
+  Then a fresh Opus review.

@@ -31,3 +31,29 @@ pytest fully green; ruff check + format --check exit 0. rig1 replay (headless fa
 
 ## Review Notes
 (reviewer only)
+
+## Session 4 stop (2026-11-17, user out of usage): WIP d32957f, NOT verified or reviewed
+Worker's final status:
+- **Done (worker-checked):**
+  - rig1 headless fast replay: exactly one decision, `group 1 [#1] -> bolt_025 (lone_confident)`. The bolt stays "1 parts (1 measured)" throughout, and the fingers produce no part or group.
+  - tests/test_stationary.py: 26 passed before the turned/shifted test was added; that test passes alone.
+  - ruff was clean at the previous commit.
+- **Revert proofs** (they failed as they should): the hole-kind check and the turned/shifted reappear check. The nudge-follow and finger-edge proofs were not finished.
+- **Churn root cause:** the bolt really moved. It slid ~0.3 in at 1.6-2.4 s and was pushed by fingers at 4.2-5.3 s. The old rule finished a measured track once it was > relocate_in (0.15) from its measured spot, even while it was tracked every frame. There was also a bug: any other blob inside the gate marked the track displaced.
+  - Fix in track.py: a part seen every frame as its own blob, with its measured area, keeps its track, and the anchor follows it.
+  - After a gap, a hand hold, a merge or an edge contact, its identity is re-checked: within 0.15 in of the anchor, area within 15%, centroid-aligned IoU ≥ 0.9, and hole kind via `Pipeline._same_hole`.
+  - Confirmed tracks claim blobs first.
+- **Edge rule:** the edge complex is every blob touching the image or belt edge, plus blobs within `edge_link_in` (0.25 in) of one, now or in the last `after_hand_s`, chained.
+  - Those blobs are never clean, measured or decided.
+  - Decisions and finishing wait while the complex changes (more than 2× min_area of change) and for `after_hand_s` after. A static edge blob stops holding decisions.
+- **Throughput root cause:** segment takes ~9 ms per frame, 27-32 ms with fingers in view. It is Python/GIL-bound, so 60 processed fps can't keep up: the baseline had 665 queue_overflow.
+  - Fix (not measured): `stationary.frame_stride` = 6 (20 fps), `feature_stride` = 1, and the capture queue takes only on-stride frames.
+  - Skipped-frame snapshots now carry the last tracks, which removes the "0 parts" flicker.
+- **To do (fresh worker):**
+  1. Full pytest + ruff on HEAD. test_run_visibility and the capture/session tests may be affected.
+  2. rig1 realtime run with the window offscreen and `--record`: overflow count and per-stage ms.
+  3. The six still-* recordings in stationary mode.
+  4. Status line and overlay: show n_edge / edge_hold.
+  5. docs/design.md stationary section.
+  6. The nudge-follow and finger-edge revert proofs.
+  Then a fresh Opus review.

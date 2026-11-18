@@ -1,0 +1,17 @@
+warning: `VIRTUAL_ENV=/Users/maxalex357/Documents/automated_hardwarer_sorter/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+hwsorter: /Users/maxalex357/Documents/automated_hardwarer_sorter/.claude/worktrees/agent-a8e1bed212a07b715/src/hwsorter/__init__.py
+== 0-25bolt1: 1482 frames; inner blobs/frame {0: 420, 1: 321}
+   worst:head_width_in              267
+   out_of_scope:-                   263  median score 2.24
+   confident:bolt_025               40  median score 0.58
+   unresolved:-                     18  median score 1.30
+   worst:head_length_in             14
+== 0-25nut1: 859 frames; inner blobs/frame {0: 122, 1: 308}
+   confident:nut_025                155  median score 0.87
+   out_of_scope:-                   87  median score 4.00
+   worst:hole_kind                  87
+   unresolved:-                     66  median score 1.06
+   worst:circularity                64
+   worst:area_in2                   2
+== 0-25washer1: 861 frames; inner blobs/frame {0: 132, 1: 299}
+   confident:washer_025             299  median score 0.29
