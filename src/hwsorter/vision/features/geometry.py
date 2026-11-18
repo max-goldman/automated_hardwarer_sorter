@@ -51,12 +51,20 @@ def resample(c: np.ndarray, n: int) -> np.ndarray:
     return np.column_stack([np.interp(t, s, closed[:, 0]), np.interp(t, s, closed[:, 1])])
 
 
-def smooth_perimeter(c: np.ndarray, n: int) -> float:
-    """Perimeter after resampling and a light circular smoothing (removes pixel staircase)."""
-    p = resample(c, n)
-    for _ in range(2):
-        p = 0.25 * np.roll(p, 1, axis=0) + 0.5 * p + 0.25 * np.roll(p, -1, axis=0)
-    return float(np.hypot(*(np.roll(p, -1, axis=0) - p).T).sum())
+def hull_circularity(hull: np.ndarray) -> float:
+    """4 pi A / P^2 of the convex hull (a regular hexagon 0.907, a circle 1.0).
+
+    Every outline that uses circularity in the library (nut faces, washers) is convex, so the
+    hull is the true outline: pixel-level outline noise, thread-like serration and notches where a
+    light chamfer meets the belt with little contrast all inflate a raw perimeter (a real hex nut
+    read 0.66) but cannot enlarge the hull's. The hull of a noisy convex outline is still convex,
+    so the value never exceeds 1.
+    """
+    if len(hull) < 3:
+        return math.nan
+    area = poly_area(hull)
+    per = float(np.hypot(*(np.roll(hull, -1, axis=0) - hull).T).sum())
+    return 4.0 * math.pi * area / per**2 if per > 0 else math.nan
 
 
 def hex_harmonic(c: np.ndarray, samples: int) -> float:
@@ -90,14 +98,14 @@ def calipers(c: np.ndarray) -> tuple[float, float]:
 def _size_shape(c: np.ndarray, prepared: Prepared, blob: Blob, cfg: FeaturesConfig):
     area = poly_area(c)
     long_, short = minrect(c)
-    hull_area = float(cv2.contourArea(cv2.convexHull(c.astype(np.float32))))
-    per = smooth_perimeter(c, max(64, 2 * cfg.radial_samples))
+    hull = cv2.convexHull(c.astype(np.float32)).reshape(-1, 2).astype(np.float64)
+    hull_area = poly_area(hull)
     return {
         "area_in2": area,
         "minrect_long_in": long_,
         "minrect_short_in": short,
         "hull_solidity": area / hull_area if hull_area > 0 else math.nan,
-        "circularity": 4.0 * math.pi * area / per**2 if per > 0 else math.nan,
+        "circularity": hull_circularity(hull),
     }
 
 

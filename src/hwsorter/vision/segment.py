@@ -38,6 +38,8 @@ from ..frames import Frame
 _SEARCH_PX = 2.5  # sub-pixel search half-range along the normal (the close can leave the mask
 # edge ~2 px out on a serrated bolt thread; a wider search pulls it back to the true edge)
 _STEP_PX = 0.25
+_STEP_SEARCH_IN_PX = 6.0  # the step search reaches this far inside (the mask edge can sit out in
+# an attached shadow ramp by several px)
 _EDGE_STRIP_IN = 0.15  # belt-edge shading strips at the ROI top/bottom are thinner than this
 _EDGE_STRIP_FALLBACK_PX = 12  # same, when no mapper gives the scale
 _OUTLIER_GAIN = 0.4  # ignore gain updates from frames this far from the tracked gain
@@ -55,8 +57,120 @@ _FACET_SEED_DILATE_PX = 9  # bridges the facet/head gradient ramp between the ba
 _EDGE_BAND_FRAC = 0.12  # bright belt-edge band cleared within this fraction of the strip depth
 
 
+_ILLUM_SUB = 3  # samples per cell side for the illumination cell medians (odd: exact median)
+_ILLUM_EVAL_PX = 32  # the surface is evaluated on this coarse grid, then linearly upsampled
+_ILLUM_INIT_REJECT = 0.15  # first pass: cells this far from the median cell are not belt
+_ILLUM_ITERS = 3  # fit / reject rounds
+
+
+def _poly_design(xs: np.ndarray, ys: np.ndarray, deg: int) -> np.ndarray:
+    """Columns x^i y^j (i + j <= deg) of normalised coordinates in [-1, 1]."""
+    cols = [xs**i * ys**j for i in range(deg + 1) for j in range(deg + 1 - i)]
+    return np.stack(cols, axis=1).astype(np.float64)
+
+
+class IlluminationSurface:
+    """Smooth per-frame illumination left after the flat-field, fitted to belt cells only.
+
+    The ROI is cut into ``illum_cell_px`` cells; each cell's level is the median of a 3x3 sample
+    grid (robust to a part covering under half the cell). A 2-D polynomial of ``illum_degree``
+    is fitted to the cell levels by least squares, iteratively dropping cells further than
+    ``illum_reject`` from the fit (parts, shadows, reflections), so only belt shapes the surface.
+    A low-order polynomial cannot follow anything part-sized, so it never absorbs a part or its
+    shadow. With too few belt cells the previous surface is kept (none yet: no correction).
+
+    ``inverse`` returns 1/surface for ROI rows x the FULL image width (columns outside the ROI
+    are extrapolated and later overwritten), so the caller can multiply a contiguous row band.
+    """
+
+    def __init__(self, cfg: SegmentConfig) -> None:
+        self.cfg = cfg
+        self._key: tuple | None = None
+        self._last: np.ndarray | None = None
+
+    def _setup(self, roi_box: tuple[int, int, int, int], width: int) -> None:
+        top, bottom, left, right = roi_box
+        cell = self.cfg.illum_cell_px
+        h, w = bottom - top, right - left
+        ncy, ncx = h // cell, w // cell
+        self._ncy, self._ncx = ncy, ncx
+        # Sample offsets inside a cell: _ILLUM_SUB evenly spread rows/columns.
+        self._off = (np.arange(_ILLUM_SUB) * 2 + 1) * cell // (2 * _ILLUM_SUB)
+        ys = (top + np.arange(ncy)[:, None] * cell + self._off[None, :]).ravel()
+        xs = (left + np.arange(ncx)[:, None] * cell + self._off[None, :]).ravel()
+        self._ys, self._xs = ys, xs
+
+        def norm_x(px):  # pixel index -> normalised ROI coordinate of its centre
+            return (np.asarray(px, np.float64) + 0.5 - left) / max(w, 1) * 2 - 1
+
+        def norm_y(py):
+            return (np.asarray(py, np.float64) + 0.5 - top) / max(h, 1) * 2 - 1
+
+        cx = left + (np.arange(ncx) + 0.5) * cell - 0.5
+        cy = top + (np.arange(ncy) + 0.5) * cell - 0.5
+        gx, gy = np.meshgrid(norm_x(cx), norm_y(cy))
+        self._a_cells = _poly_design(gx.ravel(), gy.ravel(), self.cfg.illum_degree)
+        # Coarse evaluation grid; cv2.resize (INTER_LINEAR) maps node j to output pixel
+        # (j + 0.5) * e - 0.5, so the nodes are evaluated exactly there.
+        e = _ILLUM_EVAL_PX
+        gh, gw = -(-h // e), -(-width // e)
+        ex = (np.arange(gw) + 0.5) * e - 0.5
+        ey = top + (np.arange(gh) + 0.5) * e - 0.5
+        gx, gy = np.meshgrid(norm_x(ex), norm_y(ey))
+        self._a_eval = _poly_design(gx.ravel(), gy.ravel(), self.cfg.illum_degree)
+        self._eval_shape = (gh, gw)
+        self._out_shape = (h, width)
+        self._last = None
+
+    def inverse(
+        self, img: np.ndarray, inv_flat: np.ndarray, roi_box: tuple[int, int, int, int], gain: float
+    ) -> np.ndarray | None:
+        """1 / surface over ROI rows x full width (float32), or None for no correction."""
+        key = (roi_box, img.shape)
+        if key != self._key:
+            self._key = key
+            self._setup(roi_box, img.shape[1])
+        ncy, ncx = self._ncy, self._ncx
+        a = self._a_cells
+        if ncy < 2 or ncx < 2 or a.shape[1] > ncy * ncx:
+            return None
+        ix = np.ix_(self._ys, self._xs)
+        samp = img[ix].astype(np.float32) * inv_flat[ix]
+        samp = samp.reshape(ncy, _ILLUM_SUB, ncx, _ILLUM_SUB).transpose(0, 2, 1, 3)
+        k = _ILLUM_SUB * _ILLUM_SUB
+        samp = np.ascontiguousarray(samp).reshape(ncy * ncx, k)
+        levels = np.partition(samp, k // 2, axis=1)[:, k // 2].astype(np.float64) / gain
+        belt = np.abs(levels - np.median(levels)) < _ILLUM_INIT_REJECT
+        need = max(self.cfg.illum_min_belt_frac * len(levels), a.shape[1] + 1)
+        coef = None
+        for _ in range(_ILLUM_ITERS):
+            if belt.sum() < need:
+                coef = None
+                break
+            ab = a[belt]
+            try:
+                coef = np.linalg.solve(ab.T @ ab, ab.T @ levels[belt])
+            except np.linalg.LinAlgError:
+                coef = None
+                break
+            belt = np.abs(levels - a @ coef) < self.cfg.illum_reject
+        if coef is None or belt.sum() < need:
+            return self._last
+        gh, gw = self._eval_shape
+        e = _ILLUM_EVAL_PX
+        inv = (1.0 / np.maximum(self._a_eval @ coef, 1e-3)).reshape(gh, gw).astype(np.float32)
+        inv = cv2.resize(inv, (gw * e, gh * e), interpolation=cv2.INTER_LINEAR)
+        h, w = self._out_shape
+        inv = np.ascontiguousarray(inv[:h, :w])
+        self._last = inv
+        return inv
+
+
 class Preprocessor:
-    """Flat-field and slow gain correction. ``flat=None`` uses a constant belt level."""
+    """Flat-field, slow gain correction and per-frame illumination correction.
+
+    ``flat=None`` uses a constant belt level.
+    """
 
     def __init__(self, flat: np.ndarray | None, roi: RoiCalibration, cfg: SegmentConfig) -> None:
         self.flat = flat
@@ -65,6 +179,7 @@ class Preprocessor:
         self._gain: float | None = None
         # One multiply per frame instead of two divides.
         self._inv_flat = (1.0 / flat).astype(np.float32) if flat is not None else None
+        self._illum = IlluminationSurface(cfg) if cfg.illum_correction else None
 
     def apply(self, frame: Frame) -> Prepared:
         img = frame.image
@@ -89,6 +204,11 @@ class Preprocessor:
             self._gain += self.cfg.gain_alpha * (measured - self._gain)
         gain = self._gain
         out = cv2.multiply(img, inv_flat, dtype=cv2.CV_32F, scale=1.0 / gain)
+        if self._illum is not None:
+            inv = self._illum.inverse(img, inv_flat, (top, bottom, left, right), gain)
+            if inv is not None:
+                band = out[top:bottom]  # contiguous row band: multiplied in place
+                cv2.multiply(band, inv, dst=band)
         # Outside the ROI there is no belt to compare with: call it clean belt.
         out[:top] = 1.0
         out[bottom:] = 1.0
@@ -127,6 +247,82 @@ def _fill_enclosed(mask: np.ndarray, gap_px: int = _FILL_GAP_PX) -> np.ndarray:
     return (mask.astype(bool) | sealed).astype(np.uint8)
 
 
+_TRIM_SEAL_PX = 2  # gradient neighbourhood radius for the soft test (seals valleys and gaps)
+_TRIM_SPLIT_FRAC = 0.1  # pieces at least this fraction of the largest count as a split
+
+
+def _trim_soft(
+    mask: np.ndarray, sm: np.ndarray, grad: np.ndarray, valid: np.ndarray, cfg: SegmentConfig
+) -> np.ndarray:
+    """Peel attached soft shadows (and soft reflections) off the part mask.
+
+    A shadow or a light reflection on the belt is shallow (within ``shadow_trim_depth`` of the
+    belt level) and soft: its brightness changes slowly everywhere, including where it meets the
+    belt. A part is bounded by its silhouette edge, which is sharp even where the part's tone is
+    close to the belt's. So: "soft" pixels are shallow AND have a gradient below
+    ``shadow_soft_gradient``; every soft pixel that the belt outside the mask reaches through
+    soft pixels alone (4-connected, so a one-pixel diagonal edge line still blocks) is shadow,
+    not part, and is removed. A part's own interior (a bright facet, a see-through hole) sits
+    behind its sharp silhouette edge and is never reached. Holes left by the peel are refilled.
+
+    The peel never splits a blob: if a component would break into two or more substantial
+    pieces (each at least ``_TRIM_SPLIT_FRAC`` of the largest), it is left as it was (a seam
+    strip whose soft band joins its stitches, or two parts joined by a shadow, stay one blob:
+    the safe MERGED case, never two half-parts). A component touching the ROI edge is left as
+    it was too: it is not measured (EDGE), and a belt seam entering or leaving the view must
+    reach the seam handler in its raw shape. Otherwise only the largest piece is kept; the
+    other crumbs are shadow residue.
+    """
+    # The gradient is zero at the centre of a thin dark line (a valley), so a part's dark
+    # outline line would look soft there: use the largest gradient in a small neighbourhood.
+    k = 2 * _TRIM_SEAL_PX + 1
+    gmax = cv2.dilate(grad, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    soft = (gmax < cfg.shadow_soft_gradient) & (np.abs(sm - 1.0) < cfg.shadow_trim_depth)
+    soft &= valid
+    seeds = soft & (mask == 0)
+    if not seeds.any():
+        return mask
+    n, lab = cv2.connectedComponents(soft.astype(np.uint8), connectivity=4)
+    lut = np.zeros(n, bool)
+    lut[lab[seeds]] = True
+    lut[0] = False
+    reach = lut[lab]
+    if not (reach & (mask > 0)).any():
+        return mask
+    trimmed = ((mask > 0) & ~reach).astype(np.uint8)
+    # A one-pixel residue of the soft ramp next to the true edge is harmless (the sub-pixel
+    # refinement places the edge); thin spurs left between peeled regions are opened away.
+    trimmed = cv2.morphologyEx(trimmed, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    trimmed = _fill_enclosed(trimmed)
+    n0, lab0 = cv2.connectedComponents((mask > 0).astype(np.uint8), connectivity=8)
+    n1, lab1 = cv2.connectedComponents(trimmed, connectivity=8)
+    if n1 <= 1:
+        return mask
+    # Per original component, the areas of the trimmed pieces inside it.
+    on = lab1 > 0
+    pairs = lab0[on].astype(np.int64) * n1 + lab1[on]
+    ids, area = np.unique(pairs, return_counts=True)
+    parent, piece = ids // n1, ids % n1
+    keep = np.zeros(n1, bool)
+    revert = np.zeros(n0, bool)
+    rim = cv2.dilate((~valid).astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    revert[np.unique(lab0[rim])] = True
+    revert[0] = False
+    for comp in np.unique(parent):
+        if revert[comp]:
+            continue
+        sel = parent == comp
+        a, pc = area[sel], piece[sel]
+        if np.count_nonzero(a >= _TRIM_SPLIT_FRAC * a.max()) >= 2:
+            revert[comp] = True
+        else:
+            keep[pc[np.argmax(a)]] = True
+    out = keep[lab1]
+    out |= revert[lab0]
+    # A component peeled away entirely (a free-standing soft shadow) stays removed.
+    return out.astype(np.uint8)
+
+
 def _px2_per_in2(mapper: PlaneMapper, shape: tuple[int, int]) -> float:
     """Pixels^2 per inch^2 at the image centre, from the mapper's local Jacobian."""
     cy, cx = shape[0] / 2.0, shape[1] / 2.0
@@ -135,8 +331,54 @@ def _px2_per_in2(mapper: PlaneMapper, shape: tuple[int, int]) -> float:
     return 1.0 / abs(float(np.linalg.det(jac)))
 
 
-def _refine(contour: np.ndarray, dev: np.ndarray, edge_threshold: float) -> np.ndarray:
-    """Move integer contour points (N,2) along the outward normal to the sub-pixel edge."""
+def _outer_step(g: np.ndarray, thr: float) -> tuple[np.ndarray, np.ndarray]:
+    """Per row of slopes ``g`` (outside -> inside): index of the outermost PROMINENT slope peak
+    at least ``thr``, and whether one exists. A peak is accepted once the slope falls below half
+    of it again (a separate edge, e.g. a low-contrast face edge outside a stronger inner one); a
+    shadow ramp that keeps steepening into the part's step is not a separate peak, so the climb
+    carries on to that step."""
+    n, length = g.shape
+    phase = np.zeros(n, np.int8)  # 0 searching, 1 climbing, 2 descending
+    done = np.zeros(n, bool)
+    peak_v = np.zeros(n, g.dtype)
+    peak_i = np.zeros(n, np.int64)
+    min_v = np.zeros(n, g.dtype)
+    for j in range(length):
+        v = g[:, j]
+        live = ~done
+        start = live & (phase == 0) & (v >= thr)
+        higher = live & (phase > 0) & (v > peak_v)
+        newpk = start | higher
+        peak_v = np.where(newpk, v, peak_v)
+        peak_i = np.where(newpk, j, peak_i)
+        fall = live & (phase == 1) & ~higher & ~start
+        min_v = np.where(fall, v, np.where(live & (phase == 2), np.minimum(min_v, v), min_v))
+        phase = np.where(newpk, 1, np.where(fall, 2, phase)).astype(np.int8)
+        done |= live & (phase == 2) & (min_v < 0.5 * peak_v)
+    return peak_i, phase > 0
+
+
+def _refine(
+    contour: np.ndarray,
+    dev: np.ndarray,
+    edge_threshold: float,
+    step_gradient: float = 0.0,
+    sm: np.ndarray | None = None,
+) -> np.ndarray:
+    """Move integer contour points (N,2) along the outward normal to the sub-pixel edge.
+
+    With ``step_gradient > 0`` (and the smoothed flat image ``sm``) the edge is the OUTERMOST
+    sharp step along the normal: walking inward from ``_SEARCH_PX`` outside (up to
+    ``_STEP_SEARCH_IN_PX`` inside), the first place the brightness slope |d sm / ds| reaches
+    ``step_gradient`` per px, climbed to its slope peak. The signed brightness is used, not
+    |flat - 1|, so a bright rim next to a darker shadow (|flat - 1| ~ 0 at the step) is a step
+    too. The steepest point of a blurred step is the true edge whatever the levels on either
+    side, and a soft shadow ramp next to a part is far shallower, so the outline lands on the
+    part's edge rather than out in its attached shadow (on real washers the old level rule sat
+    ~3-4 px out in the halo). Points with no such step (a low-contrast face edge) fall back to
+    the half-way rule: the crossing half way between the level just outside (belt or soft
+    shadow) and the highest level just inside (never below ``edge_threshold``).
+    """
     n = len(contour)
     if n < 8:
         return contour.astype(np.float32)
@@ -150,16 +392,14 @@ def _refine(contour: np.ndarray, dev: np.ndarray, edge_threshold: float) -> np.n
     centroid = pts.mean(axis=0)
     if float(np.sum((pts - centroid) * normal)) < 0:
         normal = -normal
-    s = np.arange(_SEARCH_PX, -_SEARCH_PX - 1e-6, -_STEP_PX, dtype=np.float32)  # outside -> in
-    mx = pts[:, 0:1] + normal[:, 0:1] * s[None, :]
-    my = pts[:, 1:2] + normal[:, 1:2] * s[None, :]
-    prof = cv2.remap(
-        dev,
-        mx.astype(np.float32),
-        my.astype(np.float32),
-        cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REPLICATE,
-    )
+    use_step = step_gradient > 0 and sm is not None
+    inner = _STEP_SEARCH_IN_PX if use_step else _SEARCH_PX
+    s_all = np.arange(_SEARCH_PX, -inner - 1e-6, -_STEP_PX, dtype=np.float32)  # outside -> in
+    mx = (pts[:, 0:1] + normal[:, 0:1] * s_all[None, :]).astype(np.float32)
+    my = (pts[:, 1:2] + normal[:, 1:2] * s_all[None, :]).astype(np.float32)
+    prof_all = cv2.remap(dev, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    m = round(2 * _SEARCH_PX / _STEP_PX) + 1  # the classic +-_SEARCH_PX window
+    s, prof = s_all[:m], prof_all[:, :m]
     inside = s <= -1.0
     height = prof[:, inside].max(axis=1)
     base = prof[:, :3].mean(axis=1)  # just outside: belt, or the soft shadow next to the part
@@ -172,6 +412,20 @@ def _refine(contour: np.ndarray, dev: np.ndarray, edge_threshold: float) -> np.n
     frac = np.clip((level[:, 0] - p0) / np.maximum(p1 - p0, 1e-6), 0.0, 1.0)
     offset = s[i1 - 1] + frac * (s[i1] - s[i1 - 1])
     offset = np.where(found, offset, 0.0).astype(np.float32)
+    if use_step:
+        bright = cv2.remap(sm, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        g = np.abs(np.diff(bright, axis=1)) / _STEP_PX  # slope between samples j and j + 1
+        r = np.arange(n)
+        j, has = _outer_step(g, step_gradient)
+        last = g.shape[1] - 1
+        jj = np.clip(j, 1, last - 1)
+        ga, gb, gc = g[r, jj - 1], g[r, jj], g[r, jj + 1]
+        den = ga - 2 * gb + gc
+        sub = np.clip(0.5 * (ga - gc) / np.where(np.abs(den) > 1e-9, den, -1e-9), -0.5, 0.5)
+        sub = np.where(jj == j, sub, 0.0)
+        # slope sample j sits half way between s[j] and s[j + 1]
+        s_step = s_all[j] - (0.5 + sub) * _STEP_PX
+        offset = np.where(has, s_step, offset).astype(np.float32)
     # Median filter along the (closed) contour to suppress noise.
     w = 5
     padded = np.concatenate([offset[-w:], offset, offset[:w]])
@@ -209,6 +463,17 @@ def _segment_window(
     # Bright facets (as bright as the belt, on the rim of a dark head): grow into pixels
     # that are brighter than the belt by edge_threshold, but only where they touch the strong
     # mask. Darker pixels are never grown into, so soft shadows stay out.
+    if cfg.edge_grow_gradient > 0 and mask.any():
+        # Low-contrast silhouette edges (a bolt-head face or a nut chamfer close to the belt's
+        # tone) are real edges, just weaker than edge_gradient_threshold: add every edge pixel
+        # connected to the strong mask (hysteresis). Shadows have no such edge, so they are not
+        # pulled in; the close + fill below then encloses the face behind the weak edge.
+        edge = (grad > cfg.edge_grow_gradient) & valid
+        n_lab, lab = cv2.connectedComponents((edge | strong).astype(np.uint8), connectivity=8)
+        lut = np.zeros(n_lab, bool)
+        lut[lab[strong]] = True
+        lut[0] = False
+        mask = (mask | (lut[lab] & edge).astype(np.uint8)).astype(np.uint8)
     weak = ((sm - 1.0) > cfg.edge_threshold) & valid
     if weak.any() and mask.any():
         n_lab, lab = cv2.connectedComponents((weak | strong).astype(np.uint8), connectivity=8)
@@ -254,6 +519,8 @@ def _segment_window(
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.close_kernel_px,) * 2)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
     mask = _fill_enclosed(mask)
+    if cfg.shadow_trim:
+        mask = _trim_soft(mask, sm, grad, valid, cfg)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
     blobs: list[Blob] = []
@@ -275,7 +542,7 @@ def _segment_window(
         ):
             continue  # soft, shallow, edgeless: shadow
         pts = c.reshape(-1, 2)
-        fine = _refine(pts, dev, cfg.edge_threshold)
+        fine = _refine(pts, dev, cfg.edge_threshold, cfg.refine_step_gradient, sm)
         area = abs(float(cv2.contourArea(fine.astype(np.float32))))
         if area < min_area_px:
             continue

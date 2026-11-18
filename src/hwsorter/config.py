@@ -103,6 +103,21 @@ class SegmentConfig(_Section):
     close_kernel_px: int = Field(3, ge=0)  # morphological close kernel size, px
     coarse_scale: int = Field(2, ge=1, le=2)  # 1 = old full-frame path; 2 = coarse-then-crop
     crop_pad_px: int = Field(16, ge=12)  # full-res padding around the coarse blob crop, px
+    # Per-frame low-frequency illumination correction after the flat-field (task 023): a
+    # polynomial surface fitted to belt-only cell medians is divided out.
+    illum_correction: bool = True
+    illum_degree: int = Field(4, ge=0, le=6)  # 2-D polynomial degree of the illumination surface
+    illum_cell_px: int = Field(32, ge=8)  # cell size for the robust belt medians, px
+    illum_reject: float = Field(0.03, gt=0)  # cells this far from the fitted surface are not belt
+    illum_min_belt_frac: float = Field(0.3, gt=0, le=1)  # fewer belt cells: reuse the last surface
+    # Attached soft-shadow trimming (task 023): shallow, soft pixels the belt reaches are peeled.
+    shadow_trim: bool = True
+    shadow_trim_depth: float = Field(0.18, gt=0)  # |flat - 1| below this can be shadow/reflection
+    shadow_soft_gradient: float = Field(0.02, gt=0)  # |grad flat| per px below this is soft
+    edge_grow_gradient: float = Field(0.03, ge=0)  # weaker edges connected to a part join it; 0=off
+    refine_step_gradient: float = Field(
+        0.05, ge=0
+    )  # outline snaps to the outermost step this sharp
 
 
 class SeamConfig(_Section):
@@ -114,6 +129,7 @@ class SeamConfig(_Section):
     width_tol_in: float = Field(0.1, gt=0)  # accepted deviation from width_in
     template_frames: int = Field(30, ge=1)  # frames averaged to learn the seam template
     speed_window: int = Field(15, ge=2)  # seam sightings smoothed for the belt speed estimate
+    min_piece_in2: float = Field(0.01, ge=0)  # repaired pieces smaller than this are seam residue
 
 
 # Track frame counts (max_missed_frames, settle_frames, min_frames) count PROCESSED frames
@@ -131,11 +147,15 @@ class FeaturesConfig(_Section):
     elongated_min_aspect: float = Field(1.8, gt=1)  # length/width above which bolt features exist
     hole_bright_threshold: float = Field(
         0.90, gt=0
-    )  # flat (part/belt) above this inside a part = see-through hole (washer ~1.0)
+    )  # x local belt level: brighter at the part centre = see-through hole (washer ~1.0)
     hole_dark_threshold: float = Field(
         0.30, gt=0
-    )  # flat below this inside a part = dark bore (nut ~0.21; bodies >= 0.40)
+    )  # x local belt level: darker at the part centre = dark bore (nut ~0.21)
     hole_min_diameter_in: float = Field(0.08, gt=0)  # smaller holes are noise
+    hole_ring_gap_in: float = Field(0.02, ge=0)  # the local belt ring starts this far outside
+    hole_ring_in: float = Field(
+        0.05, gt=0
+    )  # local belt ring width (hole levels are relative to it)
     min_valid_frames: int = Field(3, ge=1)  # fewer valid observations cannot be fused
     radial_samples: int = Field(180, ge=16)  # contour radial-profile samples (hex harmonic)
 
