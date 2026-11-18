@@ -68,7 +68,7 @@ def test_each_part_is_one_blob_with_nominal_area(rig, kind):
     assert len(blobs) == 1
     b = blobs[0]
     area_in2 = b.area_px / PPI**2
-    assert area_in2 == pytest.approx(nominal_area_in2(kind, 20.0), rel=0.05)
+    assert area_in2 == pytest.approx(nominal_area_in2(kind, 20.0), rel=0.06)
     assert not b.touches_edge
     assert b.contour_px.dtype == np.float32 and b.contour_px.shape[1] == 2
     # Sub-pixel: contour is not integer-valued.

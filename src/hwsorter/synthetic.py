@@ -118,7 +118,7 @@ def _render_part(
             cv2.circle(mask, centre, r, 255, -1, lineType=cv2.LINE_AA)
 
     if kind.startswith("washer") or kind == "coin":
-        level = {"washer_025": 72.0, "washer_0312": 100.0, "washer_0375": 112.0}.get(kind, 95.0)
+        level = {"washer_025": 72.0, "washer_0312": 112.0, "washer_0375": 112.0}.get(kind, 95.0)
         disc(d["od"] / 2, level)
         if "id" in d:
             disc(d["id"] / 2, 0.0, clear=True)  # hole: belt shows through
