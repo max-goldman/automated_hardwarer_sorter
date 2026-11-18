@@ -77,7 +77,7 @@ def _hole(c: np.ndarray, prepared: Prepared, blob: Blob, cfg: FeaturesConfig):
     ppi = math.sqrt(area_px / area_in2)
     gap_px = max(round(cfg.hole_ring_gap_in * ppi), 1)
     ring_px = max(round(cfg.hole_ring_in * ppi), 2)
-    crop, mask, (x0, y0) = silhouette_crop(blob, prepared.flat, gap_px + ring_px + 2)
+    crop, mask, _ = silhouette_crop(blob, prepared.flat, gap_px + ring_px + 2)
     n_mask = int(mask.sum())
     if n_mask == 0:
         return {"hole_kind": math.nan, "hole_diameter_in": math.nan}

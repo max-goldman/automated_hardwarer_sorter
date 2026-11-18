@@ -61,7 +61,7 @@ def _crest_offset(s: np.ndarray, edge: np.ndarray, sign: float) -> tuple[np.ndar
     line = a * s + b
     r = sign * (edge - line)  # outward positive
     step = float(s[1] - s[0]) if len(s) > 1 else 1.0
-    w = max(int(math.ceil(_CREST_WINDOW_IN / max(step, 1e-9))), 1)
+    w = max(math.ceil(_CREST_WINDOW_IN / max(step, 1e-9)), 1)
     k = len(r) // w
     if k < 1:
         return line, float(r.max())
