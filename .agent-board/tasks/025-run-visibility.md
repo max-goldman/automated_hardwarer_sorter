@@ -1,6 +1,6 @@
 # 025 make `sorter run` visible: live window, status line, optional recording
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: 020 merged. Parallel with 023 (vision) and 024 (5/16 rename).
 Branch: `task/025-run-visibility` (from `develop`)
 
@@ -25,3 +25,5 @@ Round 1 worker 8aaa88e: pytest green, ruff/format exit=0, both synthetic runs ex
 
 ## Review Notes
 Round 1 (fresh Sonnet): CHANGES REQUIRED: `_run_live` creates the camera Session before the try, so a build_pipeline error leaks the camera and the log. Orchestrator also required: restore the SIGINT handler, clean Ctrl-C during session.start(), last_decision not from EventLog.recent(), print the recording summary.
+
+Round 2 worker 8bb23c7: all 5 items addressed (try/finally around Session+build, SIGINT restore, Ctrl-C in start-up, last_decision from the pipeline, recording summary); pytest exit=0, ruff/format exit=0, both synthetic runs exit=0. Round 2 review: orchestrator (focused diff, +118/-49) — sound. Merged.
