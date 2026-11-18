@@ -149,8 +149,9 @@ class FeaturesConfig(_Section):
         0.90, gt=0
     )  # x local belt level: brighter at the part centre = see-through hole (washer ~1.0)
     hole_dark_threshold: float = Field(
-        0.30, gt=0
-    )  # x local belt level: darker at the part centre = dark bore (nut ~0.21)
+        0.45, gt=0
+    )  # x local belt level: darker at the part centre = dark bore (thread side up ~0.09-0.14,
+    # nyloc insert up 0.21-0.35, brightest near the image centre)
     hole_min_diameter_in: float = Field(0.08, gt=0)  # smaller holes are noise
     hole_ring_gap_in: float = Field(0.02, ge=0)  # the local belt ring starts this far outside
     hole_ring_in: float = Field(
