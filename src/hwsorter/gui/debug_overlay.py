@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 
 from ..contracts import TrackFlag, Verdict
 from ..pipeline import PipelineSnapshot, TrackView
+from ..status import hand_text
 
 _GOOD = QColor(80, 220, 120)
 _BAD = QColor(255, 90, 80)
@@ -102,7 +103,7 @@ class DebugOverlay:
             f"tracks {len(snap.tracks)}  parts {snap.n_parts}  groups {snap.n_groups}",
         ]
         if snap.hand:
-            lines.append("HAND in view: no decisions")
+            lines.append(hand_text(snap))
         lines += [f"send g{g} -> {out} in {s:4.2f} s" for g, out, s in self.countdowns()]
         return lines
 
@@ -129,6 +130,7 @@ class DebugOverlay:
         painter.setPen(_INFO)
         line_h = 16 / scale
         for i, line in enumerate(self.hud_lines()):
+            painter.setPen(_BAD if line.startswith("HAND") else _INFO)
             painter.drawText(QPointF(8 / scale, (18 + 16 * i) / scale + 0 * line_h), line)
 
     @staticmethod

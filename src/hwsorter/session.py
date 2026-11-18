@@ -59,11 +59,15 @@ class Session:
         realtime: bool = True,
         loop: bool = False,
         event_log: EventLog | None = None,
+        source: tuple[FrameSource, CameraControl] | None = None,
     ) -> None:
+        """``source``: a ready (source, control) pair used instead of opening ``source_spec``."""
         self.cfg = cfg
         self.source_spec = source_spec
         self.events = event_log or EventLog()
-        self.source, self.control = open_source(cfg, source_spec, realtime=realtime, loop=loop)
+        self.source, self.control = source or open_source(
+            cfg, source_spec, realtime=realtime, loop=loop
+        )
         self.capture = CaptureService(self.source, self.events)
         self.calibration: Calibration = load_calibration()
         self.exposure_ms: float | None = None
@@ -176,6 +180,11 @@ class Session:
             "not_recorded": self._writer.dropped
             + (self._rec_queue.dropped if self._rec_queue is not None else 0),
         }
+
+    def drain_recording(self, timeout_s: float = 5.0) -> None:
+        """End of a finite source: let the recorder feed thread write its backlog."""
+        if self._rec_thread is not None:
+            self._rec_thread.join(timeout=timeout_s)
 
     def stop_recording(self) -> dict[str, Any]:
         # FrameQueue has a length, so an empty queue is falsy: compare with None explicitly.

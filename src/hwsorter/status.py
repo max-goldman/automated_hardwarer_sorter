@@ -19,7 +19,7 @@ def _name(value: Any) -> str:
 def hand_text(snap: PipelineSnapshot) -> str:
     """Why a hand is (or is not) in view; the blob's size and edge make a false hand diagnosable."""
     if not snap.hand:
-        return "no"
+        return ""
     edge = f", touches the {snap.hand_edge} edge" if snap.hand_edge else ""
     return (
         f"HAND in view: holding decisions (blob {snap.hand_area_in2:.2f} in2 "
@@ -44,7 +44,7 @@ def format_status(
             prog = ", ".join(f"#{tr.track_id} {tr.n_features}/{target}" for tr in waiting)
             parts += f", {len(waiting)} measuring {prog} frames"
         parts += ")"
-        body = f"in view: {parts}  hand: {hand_text(snap)}"
+        body = f"in view: {parts}  " + (hand_text(snap) if snap.hand else "hand: no")
     else:
         pend = ", ".join(
             f"g{p.group_id}->{p.output.value} in {p.countdown_s:.1f}s" for p in snap.pending

@@ -165,7 +165,15 @@ def _pipeline_paths(cfg, decision_log: str | None):
 
 
 def _run_pipeline(
-    cfg, spec: str, *, fast: bool, mock: bool, decision_log, seconds=None, parts=None
+    cfg,
+    spec: str,
+    *,
+    fast: bool,
+    mock: bool,
+    decision_log,
+    seconds=None,
+    parts=None,
+    status: bool = False,
 ) -> int:
     """Assemble source -> pipeline -> adapter and run it to the end of the source.
 
@@ -199,8 +207,18 @@ def _run_pipeline(
         source = open_run_source(cfg, spec, realtime=False, seconds=seconds, parts=parts)
         pipeline = build_pipeline(cfg, source, ManualClock(0), adapter, log, session_dir)
         source.start()
+        on_snapshot = None
+        if status:
+            from .status import StatusReporter
+
+            reporter = StatusReporter(log, lambda: pipeline.scheduler.n_late)
+
+            def on_snapshot(snap) -> None:
+                if reporter.due(snap.t_capture_ns / 1e9):  # the source's own clock, one a second
+                    print(reporter.line(snap))
+
         try:
-            drive(source, pipeline)
+            drive(source, pipeline, on_snapshot=on_snapshot)
         finally:
             source.stop()
         pipeline.close()
@@ -250,18 +268,104 @@ def _cmd_run(args: argparse.Namespace) -> int:
     spec = args.source
     if spec not in ("camera", "synthetic"):
         spec = str(resolve_recording(cfg, spec))
+    window = not args.headless
+    if window:
+        try:
+            import PySide6  # noqa: F401
+        except ImportError:
+            print("note: PySide6 is not installed; running headless")
+            window = False
     fast = args.fast or (not args.realtime and spec != "camera")
-    if not args.headless:
-        print("note: the live GUI overlay is task 014; running headless")
-    return _run_pipeline(
-        cfg,
-        spec,
-        fast=fast,
-        mock=False,
-        decision_log=args.decision_log,
-        seconds=args.seconds,
-        parts=args.parts,
+    if fast and (window or args.record):
+        if args.fast:
+            print("note: --fast is ignored with a window or --record (they need paced frames)")
+        fast = False
+    kwargs = dict(
+        decision_log=args.decision_log, seconds=args.seconds, parts=args.parts, status=not args.quiet
     )
+    if fast:
+        return _run_pipeline(cfg, spec, fast=True, mock=False, **kwargs)
+    return _run_live(cfg, spec, window=window, record=args.record, **kwargs)
+
+
+def _run_live(
+    cfg, spec: str, *, window: bool, record, decision_log, seconds, parts, status: bool
+) -> int:
+    """A live-clock run on camera, synthetic or a recording: optional window and recording,
+    status line about once a second, clean shutdown on Ctrl-C, window close or end of source."""
+    from .camera import NullCameraControl
+    from .clock import MonotonicClock
+    from .eventlog import EventLog
+    from .output import ScreenLogAdapter
+    from .pipeline import build_pipeline, open_run_source
+    from .session import Session
+    from .status import StatusReporter
+
+    session_dir, log_path = _pipeline_paths(cfg, decision_log)
+    log = EventLog(log_path)
+    adapter = ScreenLogAdapter(
+        cfg.scheduler.screen_log_keep, uncalibrated=not cfg.timing.calibrated, echo=print
+    )
+    print(f"decision log: {log_path}")
+    clock = MonotonicClock(round(cfg.scheduler.spin_ms * 1e6))
+    if spec == "camera":
+        session = Session(cfg, "camera", event_log=log)
+    else:
+        source = open_run_source(cfg, spec, realtime=True, seconds=seconds, parts=parts)
+        session = Session(
+            cfg, spec, event_log=log, source=(source, NullCameraControl(cfg.camera.exposure_ms))
+        )
+    pipeline = build_pipeline(cfg, session.source, clock, adapter, log, session_dir)
+    reporter = StatusReporter(log, lambda: pipeline.scheduler.n_late)
+    live = spec == "camera"
+    try:
+        if live:  # the camera must be streaming before its exposure is set and frames recorded
+            session.start()
+        else:  # a finite source: subscribe before it starts so no frame is missed
+            session.exposure_ms = session.control.get_exposure_ms()
+        if record is not None:
+            path = session.start_recording(record, notes=f"sorter run --source {spec}")
+            pipeline.session_extra["recording"] = str(path)
+            print(f"recording: {path}  (replay: sorter run --source {path.name} ...)")
+        runner = session.start_pipeline(pipeline)
+        if not live:
+            session.start()
+        deadline = time.monotonic() + seconds if seconds and live else None
+        interrupted = False
+        try:
+            if window:
+                from .gui.run_window import RunWindow, run_window
+
+                run_window(
+                    lambda: RunWindow(
+                        session,
+                        lambda: runner.snapshot,
+                        reporter,
+                        runner_done=lambda: runner.done,
+                        stop_after_s=seconds if live else None,
+                        echo=print if status else None,
+                    )
+                )
+            else:
+                t0 = time.monotonic()
+                while not session.capture.wait_ended(0.2):
+                    if status and reporter.due(time.monotonic() - t0):
+                        print(reporter.line(runner.snapshot))
+                    if deadline is not None and time.monotonic() > deadline:
+                        break
+        except KeyboardInterrupt:
+            interrupted = True
+        ended = session.capture.wait_ended(0)
+        if ended:
+            runner.wait_done(10.0)
+            session.drain_recording()
+        session.stop_pipeline(15.0 if ended and not interrupted else 0.0)
+    finally:
+        session.stop()  # stops the recorder (finalises meta) and the capture service
+        log.close()
+    if record is not None and session.recording_path is not None:
+        print(f"recorded: {session.recording_path}")
+    return _report_pipeline(pipeline, log, "screen-log")
 
 
 def _cmd_replay(args: argparse.Namespace) -> int:
@@ -604,7 +708,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--source", default="camera", help='"camera", "synthetic", or a recording name or path'
     )
-    p.add_argument("--headless", action="store_true", help="no GUI")
+    p.add_argument("--headless", action="store_true", help="no window (status lines only)")
+    p.add_argument("--quiet", action="store_true", help="no once-a-second status line")
+    p.add_argument(
+        "--record",
+        metavar="NAME",
+        help="also record the frames losslessly; replay with --source NAME (paced, not --fast)",
+    )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--realtime", action="store_true", help="live clock, paced source")
     mode.add_argument("--fast", action="store_true", help="ManualClock, as fast as possible")

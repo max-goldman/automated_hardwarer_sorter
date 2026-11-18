@@ -960,7 +960,12 @@ class Pipeline:
 # --------------------------------------------------------------------------- drivers
 
 
-def drive(source: FrameSource, pipeline: Pipeline, limit: int | None = None) -> int:
+def drive(
+    source: FrameSource,
+    pipeline: Pipeline,
+    limit: int | None = None,
+    on_snapshot: Any = None,
+) -> int:
     """Read a finite source to its end (blocking, never dropping), then flush. Returns frames fed.
 
     Used for replay and fast runs: the pipeline is the only consumer, so there is no queue to
@@ -971,7 +976,9 @@ def drive(source: FrameSource, pipeline: Pipeline, limit: int | None = None) -> 
             frame = source.read()
             if frame is None:
                 continue
-            pipeline.process(frame)
+            snap = pipeline.process(frame)
+            if on_snapshot is not None:
+                on_snapshot(snap)
             n += 1
     except EndOfStream:
         pass
@@ -1088,6 +1095,10 @@ class PipelineRunner:
         self._stop.set()
         self._thread.join(timeout=5.0)
         self.pipeline.close(wait_s=wait_s)
+
+    @property
+    def done(self) -> bool:
+        return not self._thread.is_alive()
 
     def wait_done(self, timeout: float | None = None) -> None:
         self._thread.join(timeout)
