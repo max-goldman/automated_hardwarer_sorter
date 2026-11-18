@@ -248,7 +248,36 @@ def _fill_enclosed(mask: np.ndarray, gap_px: int = _FILL_GAP_PX) -> np.ndarray:
 
 
 _TRIM_SEAL_PX = 2  # gradient neighbourhood radius for the soft test (seals valleys and gaps)
+_TRIM_BRIDGE_PX = 5  # gaps in the non-soft (edge) barrier narrower than this are sealed for the
+# peel, so a faint silhouette edge with a pinhole still encloses its face
 _TRIM_SPLIT_FRAC = 0.1  # pieces at least this fraction of the largest count as a split
+
+
+def _enclosed_faces(enclosed: np.ndarray, lab: np.ndarray, n: int, mask: np.ndarray) -> np.ndarray:
+    """The soft regions in ``enclosed`` (labels ``lab`` of ``n`` soft components) that adjoin
+    exactly ONE mask component and are no larger than it: a part's own low-contrast face. A region
+    between two parts is never added, so a face grow can never join two parts into one blob."""
+    nm, labm = cv2.connectedComponents(mask, connectivity=8)
+    if nm <= 1:
+        return np.zeros_like(enclosed)
+    k = np.ones((3, 3), np.uint8)
+    hi = cv2.dilate(labm.astype(np.float32), k)  # largest mask label next to each pixel
+    lo = cv2.erode(np.where(labm > 0, labm, nm).astype(np.float32), k)  # smallest
+    touch = enclosed & (hi > 0)
+    if not touch.any():
+        return np.zeros_like(enclosed)
+    ids = lab[touch]
+    hi_c = np.zeros(n, np.float32)
+    lo_c = np.full(n, float(nm), np.float32)
+    np.maximum.at(hi_c, ids, hi[touch])
+    np.minimum.at(lo_c, ids, lo[touch])
+    size = np.bincount(lab[enclosed], minlength=n)
+    parent_size = np.bincount(labm.ravel(), minlength=nm)
+    one = (hi_c > 0) & (hi_c == lo_c)
+    one[0] = False
+    par = np.clip(hi_c.astype(np.int64), 0, nm - 1)
+    ok = one & (size <= parent_size[par])
+    return ok[lab] & enclosed
 
 
 def _trim_soft(
@@ -279,22 +308,40 @@ def _trim_soft(
     gmax = cv2.dilate(grad, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     soft = (gmax < cfg.shadow_soft_gradient) & (np.abs(sm - 1.0) < cfg.shadow_trim_depth)
     soft &= valid
-    seeds = soft & (mask == 0)
-    if not seeds.any():
-        return mask
+    if _TRIM_BRIDGE_PX > 1:  # seal pinholes in a part's faint silhouette edge (see above)
+        kb = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (_TRIM_BRIDGE_PX,) * 2)
+        hard = cv2.morphologyEx((~soft).astype(np.uint8), cv2.MORPH_CLOSE, kb)
+        soft &= hard == 0
+    part = mask > 0
     n, lab = cv2.connectedComponents(soft.astype(np.uint8), connectivity=4)
+    # Only the OPEN belt seeds the peel: soft pixels on the border of the valid window. A soft
+    # region a part's sharp silhouette edge closes off from it (a belt-toned head facet or nut
+    # chamfer, whose faint outline the mask's edge tests missed in places) is never reached, even
+    # where it lies outside the mask; such an enclosed region next to the mask is the part's own
+    # low-contrast face and joins it. A shadow fades into the belt with no edge, so it stays
+    # connected to the open belt and is peeled as before.
+    rows, cols = np.nonzero(valid.any(axis=1))[0], np.nonzero(valid.any(axis=0))[0]
+    if not len(rows):
+        return mask
+    border = np.zeros_like(valid)
+    border[rows[[0, -1]], :] = True
+    border[:, cols[[0, -1]]] = True
+    seeds = soft & ~part & border & valid
     lut = np.zeros(n, bool)
     lut[lab[seeds]] = True
     lut[0] = False
     reach = lut[lab]
-    if not (reach & (mask > 0)).any():
+    grow = _enclosed_faces(soft & ~reach & ~part, lab, n, mask)
+    if not (reach & part).any() and not grow.any():
         return mask
-    trimmed = ((mask > 0) & ~reach).astype(np.uint8)
+    full = (part | grow).astype(np.uint8)
+    trimmed = (part | grow) & ~reach
+    trimmed = trimmed.astype(np.uint8)
     # A one-pixel residue of the soft ramp next to the true edge is harmless (the sub-pixel
     # refinement places the edge); thin spurs left between peeled regions are opened away.
     trimmed = cv2.morphologyEx(trimmed, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     trimmed = _fill_enclosed(trimmed)
-    n0, lab0 = cv2.connectedComponents((mask > 0).astype(np.uint8), connectivity=8)
+    n0, lab0 = cv2.connectedComponents(full, connectivity=8)
     n1, lab1 = cv2.connectedComponents(trimmed, connectivity=8)
     if n1 <= 1:
         return mask
@@ -318,7 +365,7 @@ def _trim_soft(
         else:
             keep[pc[np.argmax(a)]] = True
     out = keep[lab1]
-    out |= revert[lab0]
+    out |= revert[lab0] & part  # reverted: exactly the untrimmed mask
     # A component peeled away entirely (a free-standing soft shadow) stays removed.
     return out.astype(np.uint8)
 

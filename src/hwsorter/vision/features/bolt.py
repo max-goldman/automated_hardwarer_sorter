@@ -27,6 +27,7 @@ _MAX_POINTS = 1200  # contours longer than this are resampled (the profile cost 
 _CREST_WINDOW_IN = 0.07  # longer than the coarsest thread pitch in scope (1/16 in), so every
 # window holds at least one crest
 _TIP_FRAC = 1 / 12  # the shank's last samples (chamfered tip) are left out of the shank width
+_AXIS_ITERS = 2  # shank-axis refinements of the min-area-rectangle axis
 
 
 def width_profile(c: np.ndarray, n: int = _SLICES) -> tuple[np.ndarray, np.ndarray]:
@@ -35,14 +36,22 @@ def width_profile(c: np.ndarray, n: int = _SLICES) -> tuple[np.ndarray, np.ndarr
     return s, np.where(np.isfinite(top) & np.isfinite(bot), top - bot, 0.0)
 
 
-def edge_profile(c: np.ndarray, n: int = _SLICES) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Rotate so the long axis is x; return (s, top edge y, bottom edge y), NaN where empty."""
-    (cx, cy), (w, h), ang = cv2.minAreaRect(c.astype(np.float32))
+def long_axis(c: np.ndarray) -> float:
+    """Direction (radians) of the long side of the minimum-area rectangle."""
+    _, (w, h), ang = cv2.minAreaRect(c.astype(np.float32))
     if w < h:
         ang += 90.0
-    a = math.radians(ang)
+    return math.radians(ang)
+
+
+def edge_profile(
+    c: np.ndarray, n: int = _SLICES, axis: float | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Rotate so ``axis`` (radians; default the min-area rectangle's long side) is x; return
+    (s, top edge y, bottom edge y), NaN where empty."""
+    a = long_axis(c) if axis is None else axis
     rot = np.array([[math.cos(a), math.sin(a)], [-math.sin(a), math.cos(a)]])
-    p = (c - [cx, cy]) @ rot.T
+    p = (c - c.mean(axis=0)) @ rot.T
     s = np.linspace(float(p[:, 0].min()), float(p[:, 0].max()), n + 2)[1:-1]
     a_, b_ = p, np.roll(p, -1, axis=0)
     da, db = a_[None, :, 0] - s[:, None], b_[None, :, 0] - s[:, None]  # (n, edges)
@@ -80,16 +89,48 @@ def shank_major(s: np.ndarray, top: np.ndarray, bot: np.ndarray) -> float:
     return float(np.median(lt - lb)) + ct + cb
 
 
+def _oriented_profile(
+    c: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    """(s, width, top, bottom) along the SHANK's own axis, head end first.
+
+    The min-area rectangle of a whole bolt outline is not aligned with the bolt: the wide head
+    tilts it (more so when a head facet is missing), and slicing across a tilted axis smears the
+    head's end face along s (longer head) and cuts the head obliquely (wrong width). So the axis
+    is refined: lines are fitted to the two shank edges in the current frame and the axis is
+    rotated by their mean slope, twice. The result does not depend on the bolt's angle in the
+    image, only on its outline.
+    """
+    axis = long_axis(c)
+    for it in range(_AXIS_ITERS + 1):
+        s, top, bot = edge_profile(c, axis=axis)
+        wid = np.where(np.isfinite(top) & np.isfinite(bot), top - bot, 0.0)
+        n = len(wid)
+        q = max(n // 6, 3)
+        head_first = wid[:q].mean() >= wid[-q:].mean()
+        tip = max(int(n * _TIP_FRAC), 1)
+        sh = slice(n // 4, n - tip) if head_first else slice(tip, n - n // 4)
+        ok = np.isfinite(top[sh]) & np.isfinite(bot[sh])
+        if it == _AXIS_ITERS or ok.sum() < 8:
+            break
+        ss = s[sh][ok]
+        m = 0.5 * (np.polyfit(ss, top[sh][ok], 1)[0] + np.polyfit(ss, bot[sh][ok], 1)[0])
+        d = math.atan(float(m))
+        if abs(d) < 1e-4:
+            break
+        axis += d
+    if not head_first:
+        s, wid, top, bot = -s[::-1], wid[::-1], -bot[::-1], -top[::-1]
+    return s, wid, top, bot
+
+
 @register("bolt_profile", provides=NAMES)
 def _bolt(c: np.ndarray, prepared: Prepared, blob: Blob, cfg: FeaturesConfig):
     if not is_elongated(c, cfg):
         return {}
-    s, top, bot = edge_profile(resample(c, _MAX_POINTS) if len(c) > _MAX_POINTS else c)
-    wid = np.where(np.isfinite(top) & np.isfinite(bot), top - bot, 0.0)
-    q = max(len(wid) // 6, 3)
-    if wid[:q].mean() < wid[-q:].mean():  # head end first
-        s, wid, top, bot = -s[::-1], wid[::-1], -bot[::-1], -top[::-1]
+    s, wid, top, bot = _oriented_profile(resample(c, _MAX_POINTS) if len(c) > _MAX_POINTS else c)
     n = len(wid)
+    q = max(n // 6, 3)
     step = float(s[1] - s[0])
     sh = slice(n // 4, n - max(int(n * _TIP_FRAC), 1))
     shank = shank_major(s[sh], top[sh], bot[sh])
