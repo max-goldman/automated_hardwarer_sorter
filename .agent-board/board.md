@@ -126,7 +126,7 @@ Orchestrator: Opus 5.5. The user is at the rig with a STATIONARY belt and the or
 | 019 `sorter measure` | DONE, merged | Real-image per-part feature diagnostic vs library ranges; skips dimmed frames. User priority. |
 | 020 stationary-belt mode | DONE, merged (3 rounds) | `belt.mode = "stationary"` / `run --stationary`; Opus review. |
 | 021 cross-machine compare | DONE, merged |
-| 028 segment follow-ups | TODO | From the 023 review: _trim_soft peels the belt-toned bolt head facet (protect faces inside the sharp-edge hull); clamp the illumination surface; limit last-surface reuse; tighten the never-splits test. |
+| 028 bolt angle + trim + moving nut | IN_PROGRESS (Opus) | From the 023 review: _trim_soft peels the belt-toned bolt head facet (protect faces inside the sharp-edge hull); clamp the illumination surface; limit last-surface reuse; tighten the never-splits test. |
 | 029 stationary live fixes | IN_PROGRESS (Opus) | First live trial (rig1): static bolt track churns and re-measures; fingers become parts; 656 queue overflows with the window. Absorbs 026. |
 | 026 tracker reappear check | MERGED INTO 029 | Stationary: a part swapped in place within missed_s with IoU >= 0.9 (nut->washer 0.90) is kept as the same part. Compare area and hole kind on reappear. From the 023 report. |
 | 027 height/parallax correction | TODO (later) | Thick parts read +3-5% (implied camera height ~8.2 in vs the brief's ~5.9 in). Calibration-level correction; until then the ranges must allow it. User (2026-11-17): lens ~7.25 in above the belt, sensor ~8 in, consistent with the implied ~8.2 in. After 024 merges, update the brief's 'lens is about 150 mm above the belt' to ~7.25 in (184 mm). |
