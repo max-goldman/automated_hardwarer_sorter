@@ -459,7 +459,10 @@ class SeamHandler:
         if n <= 1:
             return []
         areas = stats[1:, cv2.CC_STAT_AREA].astype(np.float64)
-        keep = [i + 1 for i in range(n - 1) if areas[i] >= max(0.2 * areas.max(), 30.0)]
+        # A piece smaller than the smallest part the segmenter keeps is seam residue (a lone
+        # stitch the template did not explain), never a part.
+        min_px = self._cfg.min_piece_in2 * (self._ppi or _DEFAULT_PX_PER_IN) ** 2
+        keep = [i + 1 for i in range(n - 1) if areas[i] >= max(0.2 * areas.max(), 30.0, min_px)]
         out: list[Blob] = []
         for lab in keep:
             comp = _fill_holes((labels == lab).astype(np.uint8))

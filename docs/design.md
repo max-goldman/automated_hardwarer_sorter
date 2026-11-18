@@ -46,7 +46,7 @@ Features are geometric and in inches.
     a range edge instead of passing.
   - `hex_harmonic`: the 6th radial harmonic of the contour. About 0.025 to 0.095 for a hex nut,
     about 0 for a round washer.
-  - `circularity`: 0.85 to 0.97 for a hex, 0.95 to 1.05 for a circle.
+  - `circularity` (convex-hull circularity): 0.88 to 0.965 for a hex (real nuts read 0.943 to 0.952), 0.975 to 1.02 for a circle (real washers 0.993 to 0.995).
   - `area_in2` and `minrect_short_in`: the washer's solid disc area (0.28 to 0.34) against the 5/16
     nut's hex ring (0.19 to 0.25) are close, so area alone is only supporting evidence.
   Any one of hole kind, hex harmonic or circularity is enough to disqualify the wrong pose; the

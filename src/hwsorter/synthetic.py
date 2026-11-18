@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import time
+import zlib
 from dataclasses import dataclass, field
 
 import cv2
@@ -87,6 +88,12 @@ class SceneConfig:
     specks: int = 4  # belt specks per view length
     flicker_depth: float = 0.0  # 0..1 brightness dip, to mimic the measured lighting flicker
     flicker_every: int = 20  # frames between dips
+    # Robustness options (all off by default, so default scenes are unchanged):
+    illum_gradient: float = 0.0  # smooth diagonal lighting ramp, +-this fraction corner to corner
+    shadow_depth: float = 0.16  # darkening of the soft shadow next to a part
+    shadow_blur_in: float = 0.035  # soft shadow blur radius, inches
+    shadow_offset_in: tuple[float, float] = (0.0, 0.0)  # attached (one-sided) shadow shift, inches
+    outline_noise_px: float = 0.0  # smooth random outline displacement (SD, px), like real edges
     seed: int = 1
 
 
@@ -189,6 +196,23 @@ def _render_part(
     return gray, alpha
 
 
+def _roughen(
+    gray: np.ndarray, alpha: np.ndarray, sd_px: float, seed: int, key: tuple[str, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Displace a part patch by a smooth random field (SD ``sd_px``, ~3 px correlation): the
+    outline gets the small wobble real edges have (thread crests, burrs, dirt, pixel noise)."""
+    n = alpha.shape[0]
+    rng = np.random.default_rng([seed, zlib.crc32(repr(key).encode())])
+    field = []
+    for _ in range(2):
+        f = cv2.GaussianBlur(rng.normal(0.0, 1.0, (n, n)).astype(np.float32), (0, 0), 3.0)
+        field.append(f * (sd_px / max(float(f.std()), 1e-6)))
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+    mx, my = xx + field[0], yy + field[1]
+    warp = (cv2.remap(im, mx, my, cv2.INTER_LINEAR) for im in (gray, alpha))
+    return next(warp), next(warp)
+
+
 def _belt_strip(cfg: SceneConfig, rng: np.random.Generator) -> np.ndarray:
     """One full lap of belt texture as float32 multipliers around 1.0, shape (height, loop_px + width + 2)."""
     loop_px = round(cfg.loop_length_in * cfg.px_per_in)
@@ -266,6 +290,8 @@ class SyntheticRenderer:
             - 0.10 * ((yy - cfg.height * 0.45) / cfg.height) ** 2
         )
         illum -= 0.07 * (xx / cfg.width)
+        if cfg.illum_gradient:
+            illum *= 1.0 + cfg.illum_gradient * (xx / cfg.width + yy / cfg.height - 1.0)
         self._illum = (illum * cfg.belt_level).astype(np.float32)
         self._bands = np.ones((cfg.height, 1), np.float32)
         self._bands[: cfg.belt_top_px] = 0.07
@@ -278,8 +304,15 @@ class SyntheticRenderer:
     def _patch(self, part: PartSpec) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         key = (part.kind, round(part.angle_deg, 3))
         if key not in self._patches:
-            gray, alpha = _render_part(part.kind, part.angle_deg, self.cfg.px_per_in)
-            shadow = cv2.GaussianBlur(alpha, (0, 0), 0.035 * self.cfg.px_per_in)
+            cfg = self.cfg
+            gray, alpha = _render_part(part.kind, part.angle_deg, cfg.px_per_in)
+            if cfg.outline_noise_px > 0:
+                gray, alpha = _roughen(gray, alpha, cfg.outline_noise_px, cfg.seed, key)
+            shadow = cv2.GaussianBlur(alpha, (0, 0), cfg.shadow_blur_in * cfg.px_per_in)
+            dx, dy = (v * cfg.px_per_in for v in cfg.shadow_offset_in)
+            if dx or dy:
+                n = shadow.shape[0]
+                shadow = cv2.warpAffine(shadow, np.float32([[1, 0, dx], [0, 1, dy]]), (n, n))
             self._patches[key] = (gray, alpha, shadow)
         return self._patches[key]
 
@@ -335,7 +368,7 @@ class SyntheticRenderer:
                 continue
             ps = (slice(y1 - yi, y2 - yi), slice(x1 - xi, x2 - xi))
             region = frame[y1:y2, x1:x2]
-            region *= 1.0 - 0.16 * np.clip(
+            region *= 1.0 - cfg.shadow_depth * np.clip(
                 sh[ps] * 1.6 - a[ps], 0.0, 1.0
             )  # soft shadow around the part
             region *= 1.0 - a[ps]

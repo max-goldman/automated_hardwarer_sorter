@@ -21,7 +21,7 @@ The user ran `sorter run --source camera --stationary --headless` at the rig and
 pytest fully green; ruff check + format --check exit 0; `sorter run --source synthetic --stationary --headless --fast` shows status lines; `sorter run --source synthetic --stationary --seconds 3` with `QT_QPA_PLATFORM=offscreen` exits 0 with session_end.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Round 1 worker 8aaa88e: pytest green, ruff/format exit=0, both synthetic runs exit=0, session_end written once.
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Sonnet): CHANGES REQUIRED: `_run_live` creates the camera Session before the try, so a build_pipeline error leaks the camera and the log. Orchestrator also required: restore the SIGINT handler, clean Ctrl-C during session.start(), last_decision not from EventLog.recent(), print the recording summary.

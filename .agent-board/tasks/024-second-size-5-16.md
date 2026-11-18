@@ -33,7 +33,7 @@ The in-scope set is 1/4-20 and **5/16-18** hex bolts (x 1 in), hex nuts and SAE 
 pytest fully green; ruff check + format --check exit 0; `sorter run --source synthetic --headless --fast --parts 30`; `sorter measure synthetic`; grep listing.
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Round 1 worker b3badb1: pytest exit=0 (2 xfail incl. new ghost repro), ruff/format exit=0, 30-part run exit=0; margins 1/4 vs 5/16 >= 1.94, 3/8 nut vs 5/16 1.88.
 
 ## Review Notes
-(reviewer only)
+Round 1 (fresh Opus): CHANGES REQUIRED. Rename complete; dims correct; goldens legit; brief edits size-only. CONTAMINATION: nut_025/nut_0312 ranges touch (AF 0.47/0.47, area 0.19/0.19, side 0.33/0.33) -> a +5% scale makes nut_025 CONFIDENT nut_0312. Required: gapped nut ranges (reviewer-tested set) + general scale-sweep safety test (no confident cross-class flip within ±7%). Also: strict xfail for the seam ghost, the brief's 1/4 nut thickness 0.311, a design.md near-miss limit. Pre-existing seam ghost (track 14 -> 2 parts to REWORK in the 30-part CLI run) is owned by 023.

@@ -94,8 +94,11 @@ def still(kind: str, t: float, x: float, off: float | None = None, angle: float 
 
 def test_six_classes_one_at_a_time(rig):
     kinds = ("bolt_025", "nut_0312", "washer_025", "bolt_0312", "nut_025", "washer_0312")
+    # Each part is gone for longer than stationary.missed_s before the next one is placed (a
+    # removal, not a quick swap: a hex nut and a washer on the same spot overlap ~90%, right at
+    # the tracker's reappear-IoU gate, so a sub-missed_s swap between them is not this test).
     parts = [
-        still(k, 0.5 + 1.4 * i, 1.75, off=0.5 + 1.4 * i + 1.1, angle=30.0 * i)
+        still(k, 0.5 + 1.4 * i, 1.75, off=0.5 + 1.4 * i + 0.8, angle=30.0 * i)
         for i, k in enumerate(kinds)
     ]
     run = run_still(rig, parts, seconds=0.5 + 1.4 * len(kinds) + 0.5)
