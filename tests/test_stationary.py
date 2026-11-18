@@ -211,6 +211,16 @@ def test_swap_with_the_same_silhouette_is_caught_by_the_hole(rig, monkeypatch):
     assert len(run.records("part")) == 2
 
 
+def test_reappearing_part_turned_or_shifted_is_remeasured(rig):
+    # Same kind, same area, back after a short gap: turned 60 degrees (silhouette differs) or put
+    # down 0.3 in away (beyond relocate_in). Neither inherits the old track: each is re-measured.
+    turned = [still("bolt_025", 0.4, 1.75, off=1.6), still("bolt_025", 1.75, 1.75, angle=60.0)]
+    shifted = [still("nut_025", 0.4, 1.75, off=1.6), still("nut_025", 1.75, 2.05)]
+    for parts, kind in ((turned, "bolt_025"), (shifted, "nut_025")):
+        run = run_still(rig, parts, seconds=3.4)
+        assert run.groups() == [([1], kind), ([2], kind)]
+
+
 def test_swap_under_a_hand_after_measuring_is_remeasured(rig):
     # The nut is measured and decided; a hand covers it, the nut is swapped for a washer under
     # the hand: on reappear the washer is a new part.
