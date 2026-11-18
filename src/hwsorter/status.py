@@ -64,7 +64,9 @@ def last_decision(log: Any) -> str:
     names = ",".join(_name(classes[m]) for m in members if classes.get(m) is not None)
     ids = ",".join(f"#{m}" for m in members)
     detail = f" ({names})" if names and names != _name(g.get("output")) else ""
-    return f"group {g.get('group_id')} [{ids}] -> {_name(g.get('output'))}{detail} ({g.get('rule')})"
+    return (
+        f"group {g.get('group_id')} [{ids}] -> {_name(g.get('output'))}{detail} ({g.get('rule')})"
+    )
 
 
 class StatusReporter:

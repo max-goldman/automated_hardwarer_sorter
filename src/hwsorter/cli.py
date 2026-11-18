@@ -283,7 +283,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             print("note: --fast is ignored with a window or --record (they need paced frames)")
         fast = False
     kwargs = dict(
-        decision_log=args.decision_log, seconds=args.seconds, parts=args.parts, status=not args.quiet
+        decision_log=args.decision_log,
+        seconds=args.seconds,
+        parts=args.parts,
+        status=not args.quiet,
     )
     if fast:
         return _run_pipeline(cfg, spec, fast=True, mock=False, **kwargs)
