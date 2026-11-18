@@ -85,9 +85,21 @@ group. `sorter grade` and `sorter report` work on the session as for a moving on
 is graded and reported.
 
 ```
-uv run sorter run --source camera --stationary --headless      # live, belt stopped
+uv run sorter run --source camera --stationary                 # live window (outlines, ids, verdicts, hand)
+uv run sorter run --source camera --stationary --headless      # no window, status line each second
+uv run sorter run --source camera --stationary --record rig1   # also record the frames losslessly
+uv run sorter run --source rig1 --stationary --headless --fast # replay it: same decisions
 uv run sorter run --source synthetic --headless --fast --stationary   # demo: parts, a hand, a pair
 ```
+
+`sorter run` prints one status line a second (`--quiet` turns it off), e.g.
+`t=12.3s  in view: 2 parts (1 measured, 1 measuring #5 6/10 frames)  hand: no  fps 120  last: group 3 [#4] -> nut_025 (lone_confident)`.
+When a hand holds decisions the line says why: `HAND in view: holding decisions (blob 2.31 in2 >
+1.50 max, touches the image edge)`, so a shadowed edge region taken for a hand is visible. Without
+`--headless` a window shows the live video with the debug overlay; closing it, Ctrl-C, or the end
+of a recording/synthetic source ends the run cleanly (`session_end` is written). A window or
+`--record` run uses paced frames (`--fast` is ignored); `session_start` in the decision log names
+the recording.
 
 ### Milestones 2 and 3 commands
 
