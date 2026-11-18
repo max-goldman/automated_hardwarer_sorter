@@ -22,8 +22,15 @@ Conventions
   the decision path (``perf_counter`` feeds only the ``timings`` data).
 
 Stationary mode (``belt.mode = "stationary"``): parts are placed by hand on a stopped belt. v = 0,
-nothing is timed and the scheduler is not used. A hand/arm blob (touches the image edge, larger
-than ``stationary.max_part_area_in2``) is dropped before tracking and freezes decisions. A track
+nothing is timed and the scheduler is not used. Frames are processed on ``stationary.frame_stride``
+and features taken on ``stationary.feature_stride`` instead of the pipeline strides. A hand/arm
+blob (touches the image or belt edge, larger than ``stationary.max_part_area_in2``) is dropped
+before tracking and freezes decisions. The *edge complex* is every blob that touches the image or
+belt edge plus every blob within ``stationary.edge_link_in`` of one (a fingertip split from its
+finger), now or within the last ``stationary.after_hand_s``: such a blob is never measured or
+decided (it is reported, see ``PipelineSnapshot.n_edge``), and decisions wait while the complex
+changes (moves or grows) and for ``after_hand_s`` after. A static part left at the edge stops
+holding decisions once it is still. A track
 is *measured* (fused and classified once, then locked) when it has ``max_feature_frames`` features
 (or ``classify.min_frames`` after ``stationary.settle_s``) and is settled. When no hand is in view
 and every visible track is measured, each group whose membership changed is decided once: its
@@ -37,6 +44,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -81,6 +89,7 @@ from .vision.track import Tracker
 
 log = logging.getLogger(__name__)
 
+_EDGE_SCALE = 4  # stationary edge-complex grid: 1 cell = 4x4 px
 STAGES = ("preprocess", "segment", "seam", "track", "features", "fuse", "classify", "decide")
 
 
@@ -103,6 +112,7 @@ class TrackView:
     rework: bool  # within rework_gap_in of a neighbouring track
     group_output: Output | None = None  # stationary: the standing decision of this part's group
     measured: bool = False  # stationary: classified once and locked
+    at_edge: bool = False  # stationary: part of the edge complex (fingers): never decided
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +156,8 @@ class PipelineSnapshot:
     hand_max_in2: float = 0.0  # stationary.max_part_area_in2, for the diagnosis
     feature_target: int = 0  # frames a part is measured over (pipeline.max_feature_frames)
     unmeasured: int = 0  # stationary: live parts not yet measured
+    n_edge: int = 0  # stationary: blobs in the edge complex (at an edge, or next to fingers)
+    edge_hold: bool = False  # stationary: the edge complex changed recently: decisions wait
 
 
 # --------------------------------------------------------------------------- helpers
@@ -325,6 +337,24 @@ class Pipeline:
         self._hand_info: tuple[float, str] = (0.0, "")  # (area in2, edge) of the hand blob
         self.session_extra: dict[str, Any] = {}  # merged into session_start (e.g. the recording)
         self._hand_last_ns = -(10**18)  # stationary: last time a hand was in view
+        stc = cfg.stationary
+        self.frame_stride = stc.frame_stride if self.stationary else cfg.pipeline.frame_stride
+        self._feature_stride = (
+            stc.feature_stride if self.stationary else cfg.pipeline.feature_stride
+        )
+        # Stationary edge complex (see the module doc): on a 1/_EDGE_SCALE grid, the last time each
+        # cell was within edge_link_in of an edge/hand blob; and the complex mask at its last change.
+        self._edge_seen = np.full(
+            (height // _EDGE_SCALE + 1, width // _EDGE_SCALE + 1), -(10**18), np.int64
+        )
+        self._edge_ref = np.zeros(self._edge_seen.shape, np.uint8)
+        self._edge_changed_ns = -(10**18)
+        self._n_edge = 0  # edge-complex blobs in the latest processed frame
+        link = max(1, round(stc.edge_link_in * self.px_per_in / _EDGE_SCALE))
+        self._link_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * link + 1,) * 2)
+        self._hand_mask: np.ndarray | None = None  # stationary: this frame's hand blobs, grid
+        self._prepared: Any = None  # stationary: the latest processed frame, for a re-check
+        self._last_views: tuple[tuple[TrackView, ...], tuple[GapView, ...]] = ((), ())
         self._latency_ns = round(cfg.timing.camera_latency_ms * NS_PER_MS)
         self._pre = Preprocessor(flat, roi, cfg.segment)
         self._seam = SeamHandler(cfg.seam)
@@ -411,7 +441,7 @@ class Pipeline:
         if self._manual:
             self.clock.advance_to(raw_t)  # type: ignore[attr-defined]
             self._scheduler.advance_to(self.clock.now_ns())
-        if frame.seq % self.cfg.pipeline.frame_stride != 0:
+        if frame.seq % self.frame_stride != 0:
             self._n_skipped += 1  # dequeued and dropped deterministically; never segmented
             return self._snapshot(frame.seq, t_cap, False, None, t_begin)
 
@@ -424,11 +454,15 @@ class Pipeline:
         t = self._tick("segment", t)
         blobs, seam_obs = self._seam.process(prepared, blobs)
         t = self._tick("seam", t)
+        linked: set[int] = set()
+        hold = False
         if self.stationary:
             blobs, self._hand = self._split_hand(blobs)
             if self._hand:
                 self._hand_last_ns = t_cap
-        finished = self._tracker.update(frame.seq, t_cap, blobs, hold=self._hand)
+            linked = self._edge_complex(blobs, t_cap)
+            hold = self._hand or not self._edge_settled(t_cap)
+        finished = self._tracker.update(frame.seq, t_cap, blobs, hold=hold, linked=linked)
         if not self._session_started:
             self._write_session_start()
         t = self._tick("track", t)
@@ -436,6 +470,7 @@ class Pipeline:
         self._last_t_ns = t_cap
         self._last_seq = frame.seq
 
+        self._prepared = prepared if self.stationary else None
         self._extract_features(frame, prepared, finished)
         t = self._tick("features", t)
         t = pc()
@@ -458,12 +493,14 @@ class Pipeline:
 
     def _extract_features(self, frame: Frame, prepared: Any, finished: list[Track]) -> None:
         cfg = self.cfg.pipeline
-        pick = (frame.seq // cfg.frame_stride) % cfg.feature_stride == 0
+        pick = (frame.seq // self.frame_stride) % self._feature_stride == 0
         for track in [*self._tracker.live(), *finished]:
             if not track.observations:
                 continue
             if self.stationary and track.track_id == 0:
                 continue  # never seen cleanly: not a part (and would share a state key)
+            if self.stationary and self._tracker.at_edge(track):
+                continue  # part of the edge complex (a finger next to it): never measured
             obs = track.observations[-1]
             if obs.seq != frame.seq:
                 continue  # unseen this frame
@@ -587,21 +624,17 @@ class Pipeline:
     def _split_hand(self, blobs: list[Any]) -> tuple[list[Any], bool]:
         """Drop hand/arm blobs (touch the image or belt edge and exceed max_part_area_in2)."""
         max_px = self.cfg.stationary.max_part_area_in2 * self.px_per_in**2
-        tol = self.cfg.roi.margin_px + 3
-        r = self._roi
         keep, hand = [], False
         self._hand_info = (0.0, "")
+        self._hand_mask = None
         for b in blobs:
-            x0, y0, x1, y1 = b.mask_bbox_px
-            edge = (
-                b.touches_edge
-                or x0 <= 0
-                or x1 >= self._image_w
-                or y0 <= r.top + tol
-                or y1 >= r.bottom - tol
-            )
-            if edge and b.area_px > max_px:
+            x0, _, x1, _ = b.mask_bbox_px
+            if self._at_edge(b) and b.area_px > max_px:
                 hand = True
+                if self._hand_mask is None:
+                    self._hand_mask = np.zeros(self._edge_seen.shape, np.uint8)
+                pts = np.round(b.contour_px / _EDGE_SCALE).astype(np.int32)
+                cv2.fillPoly(self._hand_mask, [pts], 1)
                 area = b.area_px / self.px_per_in**2
                 if area >= self._hand_info[0]:
                     on_image = b.touches_edge or x0 <= 0 or x1 >= self._image_w
@@ -609,6 +642,70 @@ class Pipeline:
             else:
                 keep.append(b)
         return keep, hand
+
+    def _at_edge(self, blob: Any) -> bool:
+        """The blob touches the image edge or the belt (ROI) edge."""
+        x0, y0, x1, y1 = blob.mask_bbox_px
+        tol = self.cfg.roi.margin_px + 3
+        r = self._roi
+        return bool(
+            blob.touches_edge
+            or x0 <= 0
+            or x1 >= self._image_w
+            or y0 <= r.top + tol
+            or y1 >= r.bottom - tol
+        )
+
+    def _edge_complex(self, blobs: list[Any], t_ns: int) -> set[int]:
+        """Stationary: find the edge complex among the (hand-free) blobs.
+
+        Returns the indices of every complex blob (never a clean sighting for the tracker):
+        those at the image or belt edge, and those within ``edge_link_in`` of one now or in the last ``after_hand_s`` (a
+        fingertip split from its finger), chained. A hand found by ``_split_hand`` counts too.
+        Also notes when the complex last changed (moved, grew, appeared or left)."""
+        s = _EDGE_SCALE
+        shape = self._edge_seen.shape
+        recent = (t_ns - self._edge_seen) <= round(self.cfg.stationary.after_hand_s * NS_PER_S)
+        linked: set[int] = set()
+        cur = np.zeros(shape, np.uint8)
+        hand_mask = self._hand_mask
+        if hand_mask is not None:
+            cur |= hand_mask
+        coarse = [np.round(b.contour_px / s).astype(np.int32) for b in blobs]
+        for j, b in enumerate(blobs):
+            if self._at_edge(b):
+                linked.add(j)
+                cv2.fillPoly(cur, [coarse[j]], 1)
+        near = cv2.dilate(cur, self._link_kernel) > 0
+        self._edge_seen[near] = t_ns  # only true edge blobs (and hands) leave a memory
+        reach = near | recent
+        grown = True
+        while grown:  # chain: fragments next to fragments
+            grown = False
+            for j, c in enumerate(coarse):
+                if j in linked:
+                    continue
+                xs = np.clip(c[:, 0], 0, shape[1] - 1)
+                ys = np.clip(c[:, 1], 0, shape[0] - 1)
+                if reach[ys, xs].any():
+                    linked.add(j)
+                    cv2.fillPoly(cur, [c], 1)
+                    reach |= cv2.dilate(cur, self._link_kernel) > 0
+                    grown = True
+        self._n_edge = len(linked)
+        ref = self._edge_ref
+        diff = int(np.count_nonzero(cur != ref))
+        size = max(int(np.count_nonzero(cur)), int(np.count_nonzero(ref)), 1)
+        dust = 2 * self.cfg.segment.min_area_in2 * self.px_per_in**2 / s**2  # cells
+        if diff > max(self.cfg.track.max_area_change * size, dust):
+            self._edge_ref = cur
+            self._edge_changed_ns = t_ns
+        return linked
+
+    def _edge_settled(self, t_ns: int) -> bool:
+        """The edge complex has not changed for ``stationary.after_hand_s``."""
+        wait = round(self.cfg.stationary.after_hand_s * NS_PER_S)
+        return t_ns - self._edge_changed_ns >= wait
 
     def _stable(self, track: Track) -> bool:
         """The last ``track.settle_frames`` observations are all valid (the part is not moving)."""
@@ -622,13 +719,19 @@ class Pipeline:
         for track in finished:
             self._drop(track)
         pending = False
-        for track in self._tracker.live():
+        for track in list(self._tracker.live()):
             age_s = (t_cap - track.t_first_ns) / NS_PER_S
+            if self._tracker.at_edge(track):
+                continue  # edge complex: reported, never decided; its changes hold decisions
             if track.track_id == 0:
                 pending = pending or age_s < stc.give_up_s  # a blob not (yet) seen cleanly
                 continue
             st = self._states.setdefault(track.track_id, _TrackState())
             if st.measured:
+                if self._tracker.take_recheck(track) and not self._same_hole(track, st):
+                    gone = self._tracker.release(track)  # back, but a different part: re-measure
+                    if gone is not None:
+                        self._drop(gone)
                 continue
             n = len(st.vectors)
             settled = n >= self.cfg.pipeline.max_feature_frames or (
@@ -639,10 +742,24 @@ class Pipeline:
             else:
                 pending = True
         hand_clear = t_cap - self._hand_last_ns >= round(stc.after_hand_s * NS_PER_S)
-        if not self._hand and hand_clear and not pending:
+        if not self._hand and hand_clear and self._edge_settled(t_cap) and not pending:
             now = self.clock.now_ns()
             for d in self._sdec.update(now):
                 self._emit_stationary(d, now)
+
+    def _same_hole(self, track: Track, st: _TrackState) -> bool:
+        """A measured part back after a gap or a hold: does its hole kind (when it has one) still
+        match the measurement? A washer put down where a nut was can overlap its silhouette."""
+        measured = self._measured.get(track.track_id)
+        if measured is None or self._prepared is None:
+            return True
+        want = measured[0].fused.median.get("hole_kind", math.nan)
+        obs = track.observations[-1]
+        if not math.isfinite(want) or obs.seq != self._last_seq:
+            return True
+        vec = extract(dataclasses.replace(obs, valid=True), self._prepared, self.cfg.features)
+        got = vec.values.get("hole_kind", math.nan)
+        return not math.isfinite(got) or round(got) == round(want)
 
     def _measure(self, track: Track, st: _TrackState) -> None:
         part, record = self._build_part(track, st, self._tracker.settle_flags(track))
@@ -804,8 +921,10 @@ class Pipeline:
         if self.stationary:
             # End of input: whatever is still unmeasured is measured as it is, then decided.
             for track in self._tracker.live():
+                if not track.track_id or self._tracker.at_edge(track):
+                    continue  # the edge complex is never decided
                 st = self._states.setdefault(track.track_id, _TrackState())
-                if track.track_id and not st.measured:
+                if not st.measured:
                     self._measure(track, st)
             if not self._hand:
                 for d in self._sdec.update(self._last_t_ns):
@@ -873,10 +992,13 @@ class Pipeline:
         ts = self._recent_ts
         fps = (len(ts) - 1) * 1e9 / (ts[-1] - ts[0]) if len(ts) > 1 and ts[-1] > ts[0] else 0.0
         if not processed:
+            tracks, gaps = self._last_views  # a skipped frame shows what the last one saw
             return PipelineSnapshot(
                 seq=seq,
                 t_capture_ns=t_cap,
                 processed=False,
+                tracks=tracks,
+                gaps=gaps,
                 fps=fps,
                 n_frames=self._n_frames,
                 n_skipped=self._n_skipped,
@@ -929,8 +1051,10 @@ class Pipeline:
                     rework=tr.track_id in rework,
                     group_output=group_out,
                     measured=measured,
+                    at_edge=self.stationary and self._tracker.at_edge(tr),
                 )
             )
+        self._last_views = (tuple(views), tuple(gaps))
         return PipelineSnapshot(
             seq=seq,
             t_capture_ns=t_cap,
@@ -955,7 +1079,10 @@ class Pipeline:
         unmeasured = sum(
             1
             for tr in self._tracker.live()
-            if self.stationary and tr.track_id and tr.track_id not in self._measured
+            if self.stationary
+            and tr.track_id
+            and tr.track_id not in self._measured
+            and not self._tracker.at_edge(tr)
         )
         return {
             "hand_area_in2": self._hand_info[0] if self._hand else 0.0,
@@ -963,6 +1090,8 @@ class Pipeline:
             "hand_max_in2": self.cfg.stationary.max_part_area_in2,
             "feature_target": self.cfg.pipeline.max_feature_frames,
             "unmeasured": unmeasured,
+            "n_edge": self._n_edge if self.stationary else 0,
+            "edge_hold": self.stationary and not self._edge_settled(self._last_t_ns),
         }
 
     def _pending_view(self) -> tuple[PendingSend, ...]:

@@ -34,10 +34,15 @@ def frame_level(image: np.ndarray) -> float:
 
 
 class FrameQueue:
-    """Bounded frame queue for one consumer. When full, the oldest frame is discarded and counted."""
+    """Bounded frame queue for one consumer. When full, the oldest frame is discarded and counted.
 
-    def __init__(self, name: str, max_frames: int) -> None:
+    ``stride`` > 1: the consumer only wants frames with ``seq % stride == 0`` (the pipeline's
+    frame stride); the others are never queued, so they cost the consumer nothing and do not
+    fill the queue. That is a choice of the consumer, not a loss: they are not counted."""
+
+    def __init__(self, name: str, max_frames: int, stride: int = 1) -> None:
         self.name = name
+        self.stride = max(int(stride), 1)
         self._max = max_frames
         self._items: deque[Frame | None] = deque()
         self._cond = threading.Condition()
@@ -46,6 +51,8 @@ class FrameQueue:
 
     def put(self, frame: Frame | None) -> bool:
         """Add a frame (None marks end of stream). Returns False if an old frame was discarded."""
+        if frame is not None and frame.seq % self.stride != 0:
+            return True  # not wanted by this consumer (see the class doc)
         with self._cond:
             ok = True
             if frame is not None and len(self._items) >= self._max:
@@ -119,8 +126,8 @@ class CaptureService:
         self._levels: deque[tuple[int, float]] = deque(maxlen=level_history)
         self._period_ns = int(1e9 / source.info.fps) if source.info.fps > 0 else 0
 
-    def subscribe(self, name: str, max_frames: int) -> FrameQueue:
-        queue = FrameQueue(name, max_frames)
+    def subscribe(self, name: str, max_frames: int, stride: int = 1) -> FrameQueue:
+        queue = FrameQueue(name, max_frames, stride)
         with self._lock:
             self._queues.append(queue)
         return queue

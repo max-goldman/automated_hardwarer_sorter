@@ -200,6 +200,9 @@ class StationaryConfig(_Section):
     missed_s: float = Field(0.5, gt=0)  # unseen this long (and no hand) = the part was removed
     after_hand_s: float = Field(0.3, ge=0)  # no decision until a hand has been gone this long
     give_up_s: float = Field(3.0, gt=0)  # an unmeasurable track is finalized after this long
+    edge_link_in: float = Field(0.25, ge=0)  # a blob this close to an edge blob is part of it
+    frame_stride: int = Field(6, ge=1)  # replaces pipeline.frame_stride (still parts: 20 fps)
+    feature_stride: int = Field(1, ge=1)  # replaces pipeline.feature_stride
 
 
 class SorterConfig(_Section):

@@ -92,7 +92,9 @@ class Session:
         """Plug a Pipeline in as a capture consumer (own bounded queue and thread)."""
         from .pipeline import PipelineRunner
 
-        queue = self.capture.subscribe("pipeline", self.cfg.pipeline.queue_frames)
+        # Frames the pipeline would skip on its frame stride are never queued (throughput).
+        stride = int(getattr(pipeline, "frame_stride", 1))
+        queue = self.capture.subscribe("pipeline", self.cfg.pipeline.queue_frames, stride)
         self._runner = PipelineRunner(pipeline, queue)
         self._runner.start()
         return self._runner

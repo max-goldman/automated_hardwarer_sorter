@@ -145,3 +145,6 @@ settle_s = 0.5              # a part is measured this long after it is first see
 missed_s = 0.5              # a part unseen this long, with no hand in view, was removed (> 0)
 after_hand_s = 0.3          # no decision until a hand has been out of view this long
 give_up_s = 3.0             # a track that never measures cleanly is finalized after this long
+edge_link_in = 0.25         # a blob this close to one at the image/belt edge is part of it (a fingertip split from its finger)
+frame_stride = 6            # replaces pipeline.frame_stride: 20 processed fps at 120 fps is plenty for still parts
+feature_stride = 1          # replaces pipeline.feature_stride: features on every processed frame (20/s, as moving mode)
