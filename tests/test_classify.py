@@ -161,19 +161,57 @@ def test_washer_vs_nut_separable(clf: RangeClassifier) -> None:
     assert clf.classify(fused(nut), TrackFlag(0)).part_class is PartClass.NUT_0312
 
 
-def test_five_sixteenth_nut_never_confident(clf: RangeClassifier) -> None:
-    # 5/16-18 nut: AF 0.500, AC 0.577, area ~0.217.
-    med = dict(NOMINAL[PartClass.NUT_025])
+def test_three_eighths_nut_never_confident(clf: RangeClassifier) -> None:
+    # 3/8-16 nut (out of scope, the near miss of 5/16): AF 0.563, AC 0.649, area ~0.275.
+    med = dict(NOMINAL[PartClass.NUT_0312])
     med.update(
-        area_in2=0.217,
-        across_flats_in=0.50,
-        across_corners_in=0.577,
-        minrect_short_in=0.50,
-        minrect_long_in=0.577,
+        area_in2=0.2747,
+        across_flats_in=0.563,
+        across_corners_in=0.649,
+        minrect_short_in=0.563,
+        minrect_long_in=0.649,
+        hole_diameter_in=0.306,
     )
     c = clf.classify(fused(med), TrackFlag(0))
     assert c.verdict in (Verdict.OUT_OF_SCOPE, Verdict.UNRESOLVED)
     assert c.part_class is None
+
+
+def test_three_eighths_washer_and_bolt_never_confident(clf: RangeClassifier) -> None:
+    washer = dict(NOMINAL[PartClass.WASHER_0312])
+    washer.update(
+        area_in2=0.5162,
+        minrect_short_in=0.8106,
+        minrect_long_in=0.8106,
+        across_flats_in=0.81,
+        across_corners_in=0.8117,
+        hole_diameter_in=0.3743,
+    )
+    bolt = dict(NOMINAL[PartClass.BOLT_0312])
+    bolt.update(
+        minrect_long_in=1.235,
+        minrect_short_in=0.6508,
+        shank_width_in=0.367,
+        head_width_in=0.6505,
+        head_length_in=0.2335,
+        total_length_in=1.229,
+    )
+    for med in (washer, bolt):
+        c = clf.classify(fused(med), TrackFlag(0))
+        assert c.verdict in (Verdict.OUT_OF_SCOPE, Verdict.UNRESOLVED)
+        assert c.part_class is None
+
+
+def test_quarter_and_five_sixteenth_do_not_overlap(clf: RangeClassifier) -> None:
+    """Each in-scope part scores > 1 against the other size of the same type."""
+    for a, b in (
+        (PartClass.BOLT_025, PartClass.BOLT_0312),
+        (PartClass.NUT_025, PartClass.NUT_0312),
+        (PartClass.WASHER_025, PartClass.WASHER_0312),
+    ):
+        for x, y in ((a, b), (b, a)):
+            c = clf.classify(fused(NOMINAL[x]), TrackFlag(0))
+            assert c.part_class is x and c.runner_up_score > 1.5, (x, y, c.runner_up_score)
 
 
 def test_unknown_big_part_out_of_scope(clf: RangeClassifier) -> None:
@@ -186,17 +224,33 @@ def test_nut_on_side_pose(clf: RangeClassifier) -> None:
     side = dict(NOMINAL[PartClass.NUT_025])
     side.update(
         minrect_long_in=0.47,
-        minrect_short_in=0.219,
+        minrect_short_in=0.311,  # nyloc thickness
         hole_kind=0.0,
         hex_harmonic=NAN,
         circularity=0.8,
         area_in2=0.10,
-        across_flats_in=0.219,
+        across_flats_in=0.311,
     )
     c = clf.classify(fused(side), TrackFlag(0))
     assert c.verdict is Verdict.CONFIDENT
     assert c.part_class is PartClass.NUT_025
     assert c.pose == "side"
+
+
+def test_nyloc_side_pose_separates_the_sizes(clf: RangeClassifier) -> None:
+    for pc, thick in ((PartClass.NUT_025, 0.311), (PartClass.NUT_0312, 0.347)):
+        side = dict(NOMINAL[pc])
+        side.update(
+            minrect_long_in=NOMINAL[pc]["across_corners_in"],
+            minrect_short_in=thick,
+            hole_kind=0.0,
+            hex_harmonic=NAN,
+            circularity=0.8,
+            area_in2=0.10,
+            across_flats_in=thick,
+        )
+        c = clf.classify(fused(side), TrackFlag(0))
+        assert c.verdict is Verdict.CONFIDENT and c.part_class is pc and c.pose == "side"
 
 
 def test_nan_features_are_skipped(clf: RangeClassifier) -> None:

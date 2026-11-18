@@ -39,24 +39,29 @@ every ambiguous case falls toward REWORK or MISC.
 Gray level is never used as an identity feature (the brief: it varies by part and lighting).
 Features are geometric and in inches.
 
-- **1/4 in washer vs 3/8 in nut.** Outer size is nearly identical (0.625 OD vs 0.650 across
-  corners), so size alone does not separate them. The library separates them on:
+- **1/4 in washer vs 5/16 in nut.** Outer size is nearly identical (0.625 OD vs 0.577 across
+  corners, both nylon-insert nuts and plain washers), so size alone does not separate them. The library separates them on:
   - `hole_kind`: the washer's hole shows the belt through it (code 1, bright); the nut's bore
     reads dark (code 2). It is a categorical median, so a split vote lands on 0.5/1.5 and sits on
     a range edge instead of passing.
   - `hex_harmonic`: the 6th radial harmonic of the contour. About 0.025 to 0.095 for a hex nut,
     about 0 for a round washer.
   - `circularity`: 0.85 to 0.97 for a hex, 0.95 to 1.05 for a circle.
-  - `area_in2` and `minrect_short_in`: the washer's solid disc area (0.27 to 0.34) against the 3/8
-    nut's hex ring (0.23 to 0.32) overlap a little, so area alone is only supporting evidence.
+  - `area_in2` and `minrect_short_in`: the washer's solid disc area (0.28 to 0.34) against the 5/16
+    nut's hex ring (0.19 to 0.25) are close, so area alone is only supporting evidence.
   Any one of hole kind, hex harmonic or circularity is enough to disqualify the wrong pose; the
   classifier requires that exactly one pose fits.
 - **Washer vs nut generally**: same three features (`hole_kind`, `hex_harmonic`, `circularity`).
-- **1/4 vs 3/8 of the same type**: size features (`area_in2`, `across_flats_in`,
+- **1/4 vs 5/16 of the same type**: size features (`area_in2`, `across_flats_in`,
   `minrect_short_in`, `minrect_long_in`; for bolts `shank_width_in`, `head_width_in`,
-  `head_length_in`, `total_length_in`). The ranges are disjoint by design.
+  `head_length_in`, `total_length_in`). The two sizes are only ~0.06 in apart (nut AF 0.438 vs
+  0.500, washer OD 0.625 vs 0.750, bolt shank 0.243 vs 0.306), so each range is about +-0.03 in
+  wide and the two sizes do not overlap in the discriminating features (the bolt lengths do overlap;
+  shank and head width separate them). The 3/8 parts (nut AF 0.563, washer OD 0.812, bolt shank 0.367)
+  are the near misses of 5/16: they score above 1 on those features and never get a bin. The
+  nuts are nylon-insert lock nuts, so the side pose is 0.311 (1/4) or 0.347 (5/16) in thick.
 - **Bolt vs everything else**: `minrect_long_in` of about 1.0 in plus the shank and head profile.
-- **Out-of-scope parts** (coin, 5/16 washer, a bolt standing up): their best pose score exceeds
+- **Out-of-scope parts** (coin, a 0.688 washer, any 3/8 part, a bolt standing up): their best pose score exceeds
   `out_of_scope_threshold`, so they go to MISC.
 - Thread pitch (M6 vs 1/4-20 differ by 0.01 in) is not separable and is not built.
 
@@ -141,8 +146,8 @@ same, and a moving session log omits the new config keys so it stays byte-identi
   finishes only when its part is removed (unseen for `stationary.missed_s` with no hand in
   view), never by leaving the view; only the last 60 observations are kept.
 - **Hand / arm.** A blob that touches the image or belt edge and is larger than
-  `stationary.max_part_area_in2` (default 1.0 in^2; the largest in-scope part, bolt_0375 (shank 0.375 x 1.0 in
-  plus a 0.65 x 0.234 in head, from `synthetic.PART_DIMS`), is about 0.53 in^2 and a hand is tens) is dropped before tracking: never a track, never a part. While
+  `stationary.max_part_area_in2` (default 1.0 in^2; the largest in-scope part, bolt_0312 (shank 0.3125 x 1.0 in
+  plus a 0.577 x 0.214 in head, from `synthetic.PART_DIMS`), is about 0.40 in^2 and a hand is tens) is dropped before tracking: never a track, never a part. While
   one is in view the tracks it may cover are held (not finished) and no decision is made.
 - **Measured.** A track is fused and classified once, when it has `pipeline.max_feature_frames`
   features (or `classify.min_frames` after `stationary.settle_s`) and its last `track.settle_frames`

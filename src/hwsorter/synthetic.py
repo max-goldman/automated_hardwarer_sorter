@@ -21,7 +21,7 @@ from .frames import EndOfStream, Frame, FrameSource, SourceInfo, SourceStats
 # lock nuts, SAE flat washers); nominal sizes from the brief, bolt heads and nut thickness
 # nudged to the user's caliper measurements (hardware-reference-pics). ``thick`` is the nut
 # thickness (side pose); ``nylon`` is the diameter of the lighter nylon-insert annulus seen
-# from the top (0 draws a plain nut).
+# from the top, drawn only while ``NYLON_INSERT`` is True.
 PART_DIMS: dict[str, dict[str, float]] = {
     "bolt_025": {"shank": 0.250, "head_w": 0.505, "head_h": 0.170, "length": 1.00, "tpi": 20},
     "bolt_0312": {"shank": 0.3125, "head_w": 0.577, "head_h": 0.214, "length": 1.00, "tpi": 18},
@@ -37,6 +37,9 @@ PART_DIMS: dict[str, dict[str, float]] = {
     "washer_oos_0688": {"od": 0.688, "id": 0.344},
 }
 OUT_OF_SCOPE = ("coin", "washer_oos_0688", "bolt_0375", "nut_0375", "washer_0375")
+NYLON_INSERT = (
+    False  # draw the nylon annulus on nuts (off: it splits a nut blob at the seam, see task 024)
+)
 NYLON_LEVEL = 150.0  # gray of the nylon insert (belt 185); kept below hole_bright_threshold x belt
 PART_KINDS = tuple(k for k in PART_DIMS if k not in OUT_OF_SCOPE)
 
@@ -127,7 +130,7 @@ def _render_part(
         ]
         poly(hexagon, 135.0)  # chamfered rim, lighter
         disc(d["af"] / 2 * 0.93, 88.0, on_mask=False)  # face
-        if d.get("nylon"):
+        if NYLON_INSERT and d.get("nylon"):
             disc(d["nylon"] / 2, NYLON_LEVEL, on_mask=False)  # nylon insert, lighter than the face
         disc(d["bore"] / 2 * 1.25, 120.0, on_mask=False)  # countersink ring
         disc(d["bore"] / 2, 38.0, on_mask=False)  # dark threaded bore

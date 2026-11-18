@@ -244,8 +244,8 @@ def test_bolt_head_length_survives_tapered_head_and_axis_alignment(angle, taper,
 @pytest.mark.parametrize("angle", ANGLES)
 def test_washer_vs_nut_near_miss_separable(angle):
     washer, nut = measure("washer_025", angle), measure("nut_0312", angle)
-    # outer size is a near miss: 0.625 OD against 0.650 across corners
-    assert abs(washer["across_corners_in"] - nut["across_corners_in"]) < 0.04
+    # outer size is a near miss: 0.625 OD against 0.576 across corners
+    assert abs(washer["across_corners_in"] - nut["across_corners_in"]) < 0.06
     assert washer["hole_kind"] == 1.0 and nut["hole_kind"] == 2.0
     assert nut["hex_harmonic"] > 3 * washer["hex_harmonic"]
     assert nut["hex_harmonic"] > 0.04 > 0.01 > washer["hex_harmonic"]
@@ -270,7 +270,7 @@ def test_threshold_segmentation_contour_also_works():
         obs, prep = _observation(flat, _contour_from_threshold(flat))
         v = extract(obs, prep).values
         assert v["hole_kind"] == hole
-        assert v["across_corners_in"] == pytest.approx(0.625 if hole == 1.0 else 0.650, abs=0.03)
+        assert v["across_corners_in"] == pytest.approx(0.625 if hole == 1.0 else 0.576, abs=0.03)
 
 
 def test_invalid_observation_is_all_nan():
@@ -355,3 +355,14 @@ def test_fuse_real_features_over_rotating_frames():
     assert f.n_frames == 5
     assert f.median["across_flats_in"] == pytest.approx(0.438, abs=0.012)
     assert f.spread["across_flats_in"] < 0.005
+
+
+@pytest.mark.parametrize("kind", ("nut_025", "nut_0312", "nut_0375"))
+def test_nyloc_insert_keeps_nut_features(kind, monkeypatch):
+    """The lighter nylon-insert annulus must not turn the dark bore into a washer-like hole."""
+    monkeypatch.setattr("hwsorter.synthetic.NYLON_INSERT", True)
+    v = measure(kind, 20.0)
+    d = PART_DIMS[kind]
+    assert v["hole_kind"] == 2.0
+    assert v["across_flats_in"] == pytest.approx(d["af"], abs=0.01)
+    assert v["hole_diameter_in"] == pytest.approx(d["bore"] * 0.97, abs=0.03)

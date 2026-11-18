@@ -21,6 +21,7 @@ Session 1 (2026-11-16) planned the project and built Milestones 0 and 1; its not
 | Runway | About 12 in from the camera view to the collector |
 | Belt motion | Stationary for now; can run on request |
 | Out-of-scope test items | Undecided, so tolerances are designed for near-miss sizes |
+| Second part size | **Session 3 (task 024):** the second size is 5/16-18, not 3/8 (the brief was wrong). The user's nuts are nylon-insert lock nuts. 3/8 parts, a coin and a 0.688 washer are the out-of-scope near misses. Classes renamed `*_0312` |
 | Checkpoints | Stop after each milestone for a hardware checklist (my default; not explicitly confirmed). In session 2 the user said to keep going on software, so M2/M3 are being built against synthetic scenes before checkpoint 1 |
 | Agents | Session 2: an Opus orchestrator; Fable or Opus advisors are allowed as needed |
 | Frame budget | Session 2: not every frame needs processing unless that brings a significant accuracy gain; ~10 or fewer frames per part is fine. Adopted: process every 2nd frame, features on at most 10 frames per part, two-stage segmentation, with an accuracy guard in the bench |
@@ -160,7 +161,7 @@ Both are in place and tested. The next step was to finish milestone 1.
   - Feature extraction takes 1.7-4.5 ms per part per frame.
   - The Dell budget is 8.3 ms per frame for the whole pipeline.
   - An Opus advisor proposed a plan, saved in `.agent-board/budget-proposal.md`: process every 2nd frame, extract features on at most 10 frames per track, and use two-stage segmentation. The new config keys await sign-off; the session-2 orchestrator recommends adopting it.
-- **Features on synthetic parts:** size features are within 0.004 in of nominal. The 1/4 washer and the 3/8 nut separate cleanly by hole type, hex harmonic and circularity.
+- **Features on synthetic parts:** size features are within 0.004 in of nominal. The 1/4 washer and the 5/16 nut separate cleanly by hole type, hex harmonic and circularity.
 - **Scheduler jitter on the Mac:** p99 under 0.5 ms in most runs; one run had a 9.65 ms max outlier.
 
 ## Loose ends at termination
