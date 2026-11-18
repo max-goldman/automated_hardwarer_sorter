@@ -74,6 +74,19 @@ def _edge_like(d: _Det) -> bool:
     return bool(d.blob.touches_edge or d.linked)
 
 
+def _centroid(c: np.ndarray) -> np.ndarray:
+    """Area centroid of a contour (a thin sliver on the outline barely moves it)."""
+    m = cv2.moments(c.astype(np.float32))
+    if abs(m["m00"]) < 1e-12:
+        return c.mean(axis=0)
+    return np.array([m["m10"] / m["m00"], m["m01"] / m["m00"]])
+
+
+def _centred(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``b`` shifted so its centroid sits on ``a``'s (compare shapes, not places)."""
+    return b + (_centroid(a) - _centroid(b))
+
+
 def _iou(a: np.ndarray, b: np.ndarray, px_per_in: float = 100.0) -> float:
     """Overlap of two filled silhouettes (contours in inches), rasterized on a shared grid."""
     lo = np.minimum(a.min(axis=0), b.min(axis=0))
@@ -279,7 +292,13 @@ class Tracker:
                     dist = min(dist, float(np.hypot(d.cx - s.anchor[0], d.cy - s.anchor[1])))
                 if dist <= self.cfg.gate_in:
                     pairs.append((dist, s.slot, j))
-        pairs.sort()
+        if self.st is not None:
+            # Stationary: a part's own track claims its blob before a never-confirmed track (an
+            # edge or merge fragment that happened to sit closer to the blob's centre).
+            unconfirmed = {s.slot for s in states if s.track.track_id == 0}
+            pairs.sort(key=lambda p: (p[1] in unconfirmed, p))
+        else:
+            pairs.sort()
         for _dist, slot, j in pairs:
             if slot in matched or j in used:
                 continue
@@ -453,13 +472,15 @@ class Tracker:
             else:
                 s.chain = False  # merged / a finger on it / area changed: re-check when clear
             return
-        if not clean or merged:
-            return  # still covered or merged: wait for a clean sighting
+        if not own or d.blob.touches_edge:
+            return  # still covered, merged or cut by the image edge: wait for its own blob
+        # Its own blob again (fingers may still be next to it). The same part only if it is near
+        # the anchor and has the measured area and shape (a push may have shifted it a little).
         dist = float(np.hypot(d.cx - s.anchor[0], d.cy - s.anchor[1]))  # type: ignore[index]
         same = (
             dist <= st.relocate_in
             and ratio <= cfg.max_area_change
-            and _iou(s.anchor_contour, d.contour_in) >= _REAPPEAR_IOU
+            and _iou(s.anchor_contour, _centred(s.anchor_contour, d.contour_in)) >= _REAPPEAR_IOU
         )
         if same:
             s.chain = True
