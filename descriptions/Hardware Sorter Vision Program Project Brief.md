@@ -41,7 +41,7 @@ One fixed mono global-shutter camera sees each part for roughly 60 to 85 frames.
 | Camera | Innomaker U20CAM-9281M, OmniVision OV9281 sensor | 1 MP mono, global shutter, USB 2.0 UVC ([manual summary](https://manuals.plus/asin/B0CLRN9QRC)) |
 | Mode | 1280 x 800 at 120 fps (per the user's spec sheet) | Retail listing says 720p at 120 fps. Enumerate the real modes on first connection. 120 fps over USB 2.0 needs MJPG, so each frame must be decoded. |
 | Controls | Manual exposure; FSIN trigger input and STROBE output pins | Strobe could sync a light to exposure later. Not needed now. |
-| Lens and focus | 8 mm M12 lens with IR-cut filter, replacing the stock wide-angle lens; focus set by hand | Distortion should be modest at 8 mm, but still calibrate it. Lens sits about 150 mm above the belt. |
+| Lens and focus | 8 mm M12 lens with IR-cut filter, replacing the stock wide-angle lens; focus set by hand | Distortion should be modest at 8 mm, but still calibrate it. Lens sits about 7.25 in (184 mm) above the belt; the sensor about 8 in. |
 | Field of view | About 2.2 x 3.3 to 3.5 in; belt fills the frame height | Parts move left to right. Dark bands at top and bottom are the belt edges. The samples show the full view at working distance. |
 | Scale | Estimated 360 to 390 px/in native | The samples measure about 440 px/in because Photo Booth saved them at 1440 x 960. |
 | Motion | 4 in/s is about 1,500 px/s, or about 13 px between frames | Belt speed is held steady. Each 1 ms of exposure smears a part by about 1.5 px; keep exposure at or under about 0.5 to 1 ms. |
@@ -251,7 +251,7 @@ The camera and the clock carry most of the risk; check the first two rows in the
 | Real camera modes | The retail listing says 720p at 120 fps. At 1280 x 720 the full belt width may not fit. | Enumerate modes and measure the achieved fps on both machines before building on them. |
 | MJPG decode cost | 120 compressed frames per second cost CPU time before any vision work. | Decode on the capture thread and include it in the per-stage timings on the Dell. |
 | Motion blur | Long exposure smears parts by about 1.5 px per ms. | Short exposure with enough light; the calibration tool reports blur. |
-| Lens distortion and parallax | Taller features sit closer to the lens and look larger. With the lens about 150 mm above the belt, a 5/16 in bolt head on its side (about 0.58 in high) looks roughly 10 to 12% larger than it would at belt level. | Correct distortion from a calibration target. Set each part's expected ranges from real examples, not nominal sizes. |
+| Lens distortion and parallax | Taller features sit closer to the lens and look larger. With the lens about 7.25 in above the belt, the top of a 5/16 in bolt head on its side (about 0.58 in high) looks roughly 7 to 9% larger than it would at belt level; measured on the rig, nuts and bolts read about 3 to 5% large overall, flat washers within 0.5%. | Correct distortion from a calibration target. Set each part's expected ranges from real examples, not nominal sizes. |
 | Parts settling after the transfer | Parts may still tumble or roll as they enter the view. | Prefer frames where a part moves at belt speed; flag parts whose outline keeps changing. |
 | Send-time jitter | OS scheduling, especially on Windows, can delay a send. | Dedicated scheduler thread and high-resolution timing; log the error of every send. |
 | Camera latency | Frames arrive some unknown time after exposure, which shifts every predicted drop time. | Calibrate it as a single offset and expose it in config. |
@@ -295,4 +295,4 @@ These facts are not confirmed yet. Make each one a config value, and ask the use
 - [ ] Drop distance, collector lead time and camera latency: to be found by system calibration.
 - [ ] Serial protocol: to be designed in a later session; the Arduino has no communication yet.
 
-Settled with the user: parts travel left to right, belt speed is held steady, the rework gap is 1 in edge to edge, same-class groups may share a bin, washers are SAE, the lens is about 150 mm above the belt, accuracy follows the correct-output table, and bin contamination is capped at 1%.
+Settled with the user: parts travel left to right, belt speed is held steady, the rework gap is 1 in edge to edge, same-class groups may share a bin, washers are SAE, the lens is about 7.25 in (184 mm) above the belt, accuracy follows the correct-output table, and bin contamination is capped at 1%.
