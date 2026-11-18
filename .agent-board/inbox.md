@@ -1,9 +1,10 @@
 # Inbox (needs the human)
 
 ## Open
-2. Printed target 50 mm bar: measured length? Camera reads 3-5% large. (asked 2026-11-17)
+(none)
 
 ## Answered or deferred
+- **Printed bar / scale:** moot. Task 023 found the 3-5% oversize was outline placement (shadow/blur); after its fix the washer outline bias vs calipers is ~0 px, scale factor 1.000.
 0. **Second size:** 5/16-18 (user, 2026-11-17); the brief's 3/8 was an error. Nuts are nyloc. Task 024.
 1. **Lighting flicker:** deferred by the user (2026-11-17). Assume steady lighting. Last measurement: 52% of frames dimmed, worst 31% down, at 1.0 ms.
 2. **Physical changes:** the user (2026-11-17) says no collector, no extra light and no moving conveyor will be added yet. All hardware-dependent work is parked on branch `hardware-pending` (`HARDWARE_PENDING.md`).
