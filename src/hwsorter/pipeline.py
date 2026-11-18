@@ -141,6 +141,11 @@ class PipelineSnapshot:
     n_groups: int = 0
     stationary: bool = False
     hand: bool = False  # stationary: a hand/arm is in view, so no decision is made
+    hand_area_in2: float = 0.0  # stationary: area of the largest blob taken for a hand
+    hand_edge: str = ""  # which edge that blob touches: "image" or "belt"
+    hand_max_in2: float = 0.0  # stationary.max_part_area_in2, for the diagnosis
+    feature_target: int = 0  # frames a part is measured over (pipeline.max_feature_frames)
+    unmeasured: int = 0  # stationary: live parts not yet measured
 
 
 # --------------------------------------------------------------------------- helpers
@@ -316,6 +321,8 @@ class Pipeline:
         self.speed_in_s = 0.0 if self.stationary else float(cfg.belt.speed_in_s)
         self._roi = roi
         self._hand = False
+        self._hand_info: tuple[float, str] = (0.0, "")  # (area in2, edge) of the hand blob
+        self.session_extra: dict[str, Any] = {}  # merged into session_start (e.g. the recording)
         self._hand_last_ns = -(10**18)  # stationary: last time a hand was in view
         self._latency_ns = round(cfg.timing.camera_latency_ms * NS_PER_MS)
         self._pre = Preprocessor(flat, roi, cfg.segment)
@@ -582,6 +589,7 @@ class Pipeline:
         tol = self.cfg.roi.margin_px + 3
         r = self._roi
         keep, hand = [], False
+        self._hand_info = (0.0, "")
         for b in blobs:
             x0, y0, x1, y1 = b.mask_bbox_px
             edge = (
@@ -593,6 +601,10 @@ class Pipeline:
             )
             if edge and b.area_px > max_px:
                 hand = True
+                area = b.area_px / self.px_per_in**2
+                if area >= self._hand_info[0]:
+                    on_image = b.touches_edge or x0 <= 0 or x1 >= self._image_w
+                    self._hand_info = (area, "image" if on_image else "belt")
             else:
                 keep.append(b)
         return keep, hand
@@ -750,6 +762,7 @@ class Pipeline:
                     "measured_speed_in_s": None,  # the seam estimate goes in session_end timings
                     "machine": machine_name(),
                     "source": self.source_name,
+                    **self.session_extra,
                     "config": self._config_dump(),
                 }
             ),
@@ -858,6 +871,7 @@ class Pipeline:
                 pending=self._pending_view(),
                 stationary=self.stationary,
                 hand=self._hand,
+                **self._hand_fields(),
             )
         gap_in = self.cfg.belt.rework_gap_in
         live = sorted(self._tracker.live(), key=lambda tr: (tr.belt_x_trail_in, tr.track_id))
@@ -918,7 +932,22 @@ class Pipeline:
             n_groups=self._n_groups,
             stationary=self.stationary,
             hand=self._hand,
+            **self._hand_fields(),
         )
+
+    def _hand_fields(self) -> dict[str, Any]:
+        unmeasured = sum(
+            1
+            for tr in self._tracker.live()
+            if self.stationary and tr.track_id and tr.track_id not in self._measured
+        )
+        return {
+            "hand_area_in2": self._hand_info[0] if self._hand else 0.0,
+            "hand_edge": self._hand_info[1] if self._hand else "",
+            "hand_max_in2": self.cfg.stationary.max_part_area_in2,
+            "feature_target": self.cfg.pipeline.max_feature_frames,
+            "unmeasured": unmeasured,
+        }
 
     def _pending_view(self) -> tuple[PendingSend, ...]:
         now = self.clock.now_ns()
