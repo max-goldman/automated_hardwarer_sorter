@@ -53,29 +53,26 @@ def format_status(
     return f"{head}{body}  fps {snap.fps:.0f}  last: {last}"
 
 
-def last_decision(log: Any) -> str:
-    """Describe the newest ``group`` record of an EventLog, with its members' classes."""
-    groups = log.recent("group")
-    if not groups:
+def last_decision(info: dict[str, Any] | None) -> str:
+    """Describe the pipeline's newest group decision (``Pipeline.last_decision``)."""
+    if not info:
         return "none yet"
-    g = groups[-1]
-    members = list(g.get("member_track_ids", ()))
-    classes = {r.get("track_id"): r.get("part_class") for r in log.recent("part")}
-    names = ",".join(_name(classes[m]) for m in members if classes.get(m) is not None)
-    ids = ",".join(f"#{m}" for m in members)
-    detail = f" ({names})" if names and names != _name(g.get("output")) else ""
-    return (
-        f"group {g.get('group_id')} [{ids}] -> {_name(g.get('output'))}{detail} ({g.get('rule')})"
-    )
+    ids = ",".join(f"#{m}" for m in info["members"])
+    names = ",".join(_name(c) for c in info.get("classes", ()) if c is not None)
+    detail = f" ({names})" if names and names != _name(info["output"]) else ""
+    return f"group {info['group_id']} [{ids}] -> {_name(info['output'])}{detail} ({info['rule']})"
 
 
 class StatusReporter:
     """Builds status lines for a running pipeline; ``due()`` paces them to about one a second."""
 
     def __init__(
-        self, log: Any, late: Callable[[], int] | None = None, every_s: float = 1.0
+        self,
+        last: Callable[[], dict[str, Any] | None],
+        late: Callable[[], int] | None = None,
+        every_s: float = 1.0,
     ) -> None:
-        self.log, self._late, self.every_s = log, late, every_s
+        self._last, self._late, self.every_s = last, late, every_s
         self._t0: int | None = None
         self._next = 0.0
 
@@ -84,7 +81,7 @@ class StatusReporter:
             self._t0 = snap.t_capture_ns
         t_s = (snap.t_capture_ns - self._t0) / 1e9 if snap is not None and self._t0 else 0.0
         late = self._late() if self._late else 0
-        return format_status(snap, t_s, last_decision(self.log), late)
+        return format_status(snap, t_s, last_decision(self._last()), late)
 
     def due(self, now_s: float) -> bool:
         if now_s >= self._next:

@@ -83,10 +83,13 @@ def run_window(window_factory: Callable[[], RunWindow]) -> int:
     app = QApplication.instance() or QApplication(sys.argv[:1])
     window = window_factory()
     window.show()
-    signal.signal(signal.SIGINT, lambda *_: window.close())
+    previous = signal.signal(signal.SIGINT, lambda *_: window.close())
     pump = QTimer()  # lets the Python signal handler run while Qt owns the loop
     pump.start(200)
     pump.timeout.connect(lambda: None)
-    code = app.exec()
-    pump.stop()
+    try:
+        code = app.exec()
+    finally:
+        pump.stop()
+        signal.signal(signal.SIGINT, previous)  # Ctrl-C works again during a slow shutdown
     return code

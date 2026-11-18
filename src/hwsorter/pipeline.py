@@ -320,6 +320,7 @@ class Pipeline:
         self.stationary = cfg.belt.mode == "stationary"
         self.speed_in_s = 0.0 if self.stationary else float(cfg.belt.speed_in_s)
         self._roi = roi
+        self.last_decision: dict[str, Any] | None = None  # newest group decision, for status
         self._hand = False
         self._hand_info: tuple[float, str] = (0.0, "")  # (area in2, edge) of the hand blob
         self.session_extra: dict[str, Any] = {}  # merged into session_start (e.g. the recording)
@@ -669,6 +670,9 @@ class Pipeline:
             self.log.log("part", **to_log_dict(record))
             self._n_parts += 1
         self._n_groups += 1
+        self._note_decision(
+            d, [self._measured[t][0].classification.part_class for t in d.member_track_ids]
+        )
         self.log.log(
             "group",
             **to_log_dict(
@@ -713,8 +717,10 @@ class Pipeline:
             self._emit_group(d, now_ns)
 
     def _emit_group(self, d: GroupDecision, now_ns: int) -> None:
+        classes: list[Any] = []
         for tid in d.member_track_ids:
             _part, record = self._parts.pop(tid)
+            classes.append(record.get("part_class"))
             feature_ms = record.pop("_feature_ms", 0.0)
             record["timings"] = {
                 "stages_ms": {"features": feature_ms},
@@ -722,6 +728,7 @@ class Pipeline:
             }
             self.log.log("part", **to_log_dict(record))
         self._n_groups += 1
+        self._note_decision(d, classes)
         self.log.log(
             "group",
             **to_log_dict(
@@ -744,6 +751,15 @@ class Pipeline:
         self._scheduler.submit(ScheduledOutput(d.group_id, d.output, d.member_track_ids, t_send))
 
     # ------------------------------------------------------------------ session records
+
+    def _note_decision(self, d: GroupDecision, classes: list[Any]) -> None:
+        self.last_decision = {
+            "group_id": d.group_id,
+            "members": list(d.member_track_ids),
+            "output": d.output,
+            "rule": d.rule,
+            "classes": classes,
+        }
 
     def _write_session_start(self) -> None:
         self._session_started = True

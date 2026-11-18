@@ -211,7 +211,9 @@ def _run_pipeline(
         if status:
             from .status import StatusReporter
 
-            reporter = StatusReporter(log, lambda: pipeline.scheduler.n_late)
+            reporter = StatusReporter(
+                lambda: pipeline.last_decision, lambda: pipeline.scheduler.n_late
+            )
 
             def on_snapshot(snap) -> None:
                 if reporter.due(snap.t_capture_ns / 1e9):  # the source's own clock, one a second
@@ -313,17 +315,23 @@ def _run_live(
     )
     print(f"decision log: {log_path}")
     clock = MonotonicClock(round(cfg.scheduler.spin_ms * 1e6))
-    if spec == "camera":
-        session = Session(cfg, "camera", event_log=log)
-    else:
-        source = open_run_source(cfg, spec, realtime=True, seconds=seconds, parts=parts)
-        session = Session(
-            cfg, spec, event_log=log, source=(source, NullCameraControl(cfg.camera.exposure_ms))
-        )
-    pipeline = build_pipeline(cfg, session.source, clock, adapter, log, session_dir)
-    reporter = StatusReporter(log, lambda: pipeline.scheduler.n_late)
-    live = spec == "camera"
+    session = None
+    pipeline = None
+    interrupted = False
     try:
+        if spec == "camera":
+            session = Session(cfg, "camera", event_log=log)
+        else:
+            source = open_run_source(cfg, spec, realtime=True, seconds=seconds, parts=parts)
+            session = Session(
+                cfg,
+                spec,
+                event_log=log,
+                source=(source, NullCameraControl(cfg.camera.exposure_ms)),
+            )
+        pipeline = build_pipeline(cfg, session.source, clock, adapter, log, session_dir)
+        reporter = StatusReporter(lambda: pipeline.last_decision, lambda: pipeline.scheduler.n_late)
+        live = spec == "camera"
         if live:  # the camera must be streaming before its exposure is set and frames recorded
             session.start()
         else:  # a finite source: subscribe before it starts so no frame is missed
@@ -336,7 +344,6 @@ def _run_live(
         if not live:
             session.start()
         deadline = time.monotonic() + seconds if seconds and live else None
-        interrupted = False
         try:
             if window:
                 from .gui.run_window import RunWindow, run_window
@@ -365,11 +372,23 @@ def _run_live(
             runner.wait_done(10.0)
             session.drain_recording()
         session.stop_pipeline(15.0 if ended and not interrupted else 0.0)
+    except KeyboardInterrupt:  # Ctrl-C while the camera was opening or starting
+        print("interrupted during start-up: closing")
+        interrupted = True
     finally:
-        session.stop()  # stops the recorder (finalises meta) and the capture service
-        log.close()
-    if record is not None and session.recording_path is not None:
-        print(f"recorded: {session.recording_path}")
+        try:
+            if session is not None:
+                session.stop()  # stops the recorder (finalises meta) and the capture service
+        finally:
+            log.close()
+    if record is not None and session is not None and session.recording_summary:
+        rs = session.recording_summary
+        print(
+            f"recorded: {rs['path']}  {rs['frames']} frames, {rs['megabytes']} MB, "
+            f"{rs['not_recorded']} not recorded"
+        )
+    if pipeline is None:
+        return 130 if interrupted else 1
     return _report_pipeline(pipeline, log, "screen-log")
 
 

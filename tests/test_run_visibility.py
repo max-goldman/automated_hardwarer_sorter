@@ -27,14 +27,6 @@ def snap(**kw) -> PipelineSnapshot:
     return PipelineSnapshot(**base)
 
 
-class FakeLog:
-    def __init__(self, groups=(), parts=()):
-        self._r = {"group": list(groups), "part": list(parts)}
-
-    def recent(self, kind=None):
-        return self._r.get(kind, [])
-
-
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
@@ -69,12 +61,15 @@ def test_status_moving_shows_pending_and_late():
 
 
 def test_last_decision_names_member_classes():
-    log = FakeLog(
-        [{"group_id": 9, "member_track_ids": [8, 9], "output": "rework", "rule": "rework"}],
-        [{"track_id": 8, "part_class": "bolt"}, {"track_id": 9, "part_class": "washer"}],
-    )
-    assert last_decision(log) == "group 9 [#8,#9] -> rework (bolt,washer) (rework)"
-    assert last_decision(FakeLog()) == "none yet"
+    info = {
+        "group_id": 9,
+        "members": [8, 9],
+        "output": "rework",
+        "rule": "rework",
+        "classes": ["bolt", "washer"],
+    }
+    assert last_decision(info) == "group 9 [#8,#9] -> rework (bolt,washer) (rework)"
+    assert last_decision(None) == "none yet"
 
 
 def records(path):
@@ -135,3 +130,40 @@ def test_ctrl_c_ends_the_run_cleanly(sandbox, monkeypatch, pacing):
     args = ["run", "--source", "synthetic", "--stationary", "--headless", pacing, "--seconds", "20"]
     assert main([*args, "--decision-log", str(log)]) == 0
     assert any(r["kind"] == "session_end" for r in records(log))
+
+
+def test_status_reports_last_decision_from_the_pipeline(sandbox, capsys):
+    log = sandbox / "ld" / "log.jsonl"
+    args = ["run", "--source", "synthetic", "--stationary", "--headless", "--fast"]
+    assert main([*args, "--seconds", "4", "--decision-log", str(log)]) == 0
+    assert "last: group 1 [#1] ->" in capsys.readouterr().out
+
+
+def test_failed_pipeline_build_still_stops_session_and_closes_log(sandbox, monkeypatch):
+    import hwsorter.pipeline as pl
+    import hwsorter.session as sess
+
+    events = []
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            self.source = object()
+            self.events = kwargs["event_log"]
+
+        def stop(self):
+            events.append("stop")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("build failed")
+
+    closed = []
+    from hwsorter.eventlog import EventLog
+
+    real_close = EventLog.close
+    monkeypatch.setattr(EventLog, "close", lambda self: (closed.append(1), real_close(self)))
+    monkeypatch.setattr(sess, "Session", FakeSession)
+    monkeypatch.setattr(pl, "build_pipeline", boom)
+    log = sandbox / "f" / "log.jsonl"
+    args = ["run", "--source", "camera", "--stationary", "--headless"]
+    assert main([*args, "--decision-log", str(log)]) == 1  # main reports the error
+    assert events == ["stop"] and closed

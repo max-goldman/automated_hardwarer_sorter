@@ -77,6 +77,7 @@ class Session:
         self._rec_stop = threading.Event()
         self._rec_baseline: tuple[int, int] = (0, 0)
         self.recording_path: Path | None = None
+        self.recording_summary: dict[str, Any] = {}  # set when the recording is stopped
         self._runner: Any = None
 
     # -- lifecycle ------------------------------------------------------------------
@@ -213,6 +214,7 @@ class Session:
         )
         self.events.log("recording_stop", **summary)
         self._rec_queue = None
+        self.recording_summary = summary
         return summary
 
 
