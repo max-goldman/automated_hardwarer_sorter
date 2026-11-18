@@ -18,7 +18,15 @@ from hwsorter.eventlog import EventLog
 from hwsorter.frames import Frame
 from hwsorter.output import MockSerialAdapter
 from hwsorter.pipeline import Pipeline, synthetic_calibration
-from hwsorter.synthetic import HandSpec, PartSpec, SceneConfig, SyntheticRenderer, still_scene
+from hwsorter.synthetic import (
+    PART_DIMS,
+    FingerSpec,
+    HandSpec,
+    PartSpec,
+    SceneConfig,
+    SyntheticRenderer,
+    still_scene,
+)
 
 START_NS = 1_000_000_000
 SCENE = SceneConfig(speed_in_s=0.0)
@@ -59,10 +67,11 @@ def run_still(
     cfg: SorterConfig | None = None,
     session_dir: Path | None = None,
     log_path: Path | None = None,
+    fingers: list[FingerSpec] | None = None,
 ) -> Run:
     cal, flat = rig
     cfg = cfg or stationary_cfg()
-    renderer = SyntheticRenderer(SCENE, parts, hands)
+    renderer = SyntheticRenderer(SCENE, parts, hands, fingers)
     log, adapter = EventLog(log_path), MockSerialAdapter()
     pl = Pipeline(
         cfg,
@@ -78,7 +87,7 @@ def run_still(
     snaps = []
     for i in range(int(seconds * SCENE.fps)):
         t = START_NS + round(i * 1e9 / SCENE.fps)
-        img = renderer.render(i / SCENE.fps, i) if i % cfg.pipeline.frame_stride == 0 else dummy
+        img = renderer.render(i / SCENE.fps, i) if i % pl.frame_stride == 0 else dummy
         snaps.append(pl.process(Frame(i, t, t, img)))
     pl.close()
     log.close()
@@ -94,11 +103,10 @@ def still(kind: str, t: float, x: float, off: float | None = None, angle: float 
 
 def test_six_classes_one_at_a_time(rig):
     kinds = ("bolt_025", "nut_0312", "washer_025", "bolt_0312", "nut_025", "washer_0312")
-    # Each part is gone for longer than stationary.missed_s before the next one is placed (a
-    # removal, not a quick swap: a hex nut and a washer on the same spot overlap ~90%, right at
-    # the tracker's reappear-IoU gate, so a sub-missed_s swap between them is not this test).
+    # Each part is taken away 0.3 s before the next is put down on the same spot: shorter than
+    # stationary.missed_s, so the old track is still live and must notice the new part on reappear.
     parts = [
-        still(k, 0.5 + 1.4 * i, 1.75, off=0.5 + 1.4 * i + 0.8, angle=30.0 * i)
+        still(k, 0.5 + 1.4 * i, 1.75, off=0.5 + 1.4 * i + 1.1, angle=30.0 * i)
         for i, k in enumerate(kinds)
     ]
     run = run_still(rig, parts, seconds=0.5 + 1.4 * len(kinds) + 0.5)
@@ -180,6 +188,84 @@ def test_fast_swap_under_a_short_hand_is_a_new_track(rig):
     run = run_still(rig, parts, [HandSpec(0.55, 0.64, 1.75, y_in=1.2)], seconds=3.5)
     assert run.groups() == [([2], "washer_0312")]
     assert run.records("part")[0]["track_id"] == 2
+
+
+def test_quick_nut_to_washer_swap_is_remeasured(rig):
+    # The nut is decided, taken away and a washer put down on the same spot 0.15 s later (less
+    # than missed_s): the washer must get its own track and decision, never the nut's.
+    parts = [still("nut_0312", 0.4, 1.75, off=1.6), still("washer_025", 1.75, 1.75)]
+    run = run_still(rig, parts, seconds=3.4)
+    assert run.groups() == [([1], "nut_0312"), ([2], "washer_025")]
+    assert [p["part_class"] for p in run.records("part")] == ["nut_0312", "washer_025"]
+
+
+def test_swap_with_the_same_silhouette_is_caught_by_the_hole(rig, monkeypatch):
+    # A washer whose outline matches the nut's (same area, centred IoU ~0.93): only the hole kind
+    # (see-through vs dark bore) tells them apart on reappear.
+    monkeypatch.setitem(PART_DIMS, "washer_hx", {"od": 0.525, "id": 0.26})
+    parts = [still("nut_0312", 0.4, 1.75, off=1.6), still("washer_hx", 1.75, 1.75)]
+    run = run_still(rig, parts, seconds=3.4)
+    (first, *rest) = run.groups()
+    assert first == ([1], "nut_0312")
+    assert [m for m, _ in rest] == [[2]] and rest[0][1] != "nut_0312"
+    assert len(run.records("part")) == 2
+
+
+def test_swap_under_a_hand_after_measuring_is_remeasured(rig):
+    # The nut is measured and decided; a hand covers it, the nut is swapped for a washer under
+    # the hand: on reappear the washer is a new part.
+    parts = [still("nut_025", 0.4, 1.75, off=2.2), still("washer_0312", 2.3, 1.75)]
+    run = run_still(rig, parts, [HandSpec(2.0, 2.6, 1.75, y_in=1.6)], seconds=4.4)
+    assert run.groups() == [([1], "nut_025"), ([2], "washer_0312")]
+
+
+def test_a_nudged_part_keeps_its_one_decision(rig):
+    # A bolt slid 0.4 in along the belt (more than relocate_in) while in plain view, smoothly:
+    # the same part, so one track and one decision.
+    bolt = PartSpec("bolt_025", 0.4, 1.0, 0.0, x_in=1.4, slide=(1.6, 2.4, 0.4))
+    run = run_still(rig, [bolt], seconds=3.6)
+    assert run.groups() == [([1], "bolt_025")]
+    assert len(run.records("part")) == 1
+    assert [v.track_id for v in run.last().tracks] == [1]
+
+
+def test_fingers_at_the_edge_are_never_parts(rig):
+    # A bolt is decided; then fingers reach in from the right image edge (too small for a hand),
+    # moving and growing, with a detached fingertip blob, and leave. No finger part or group.
+    fingers = [
+        FingerSpec(1.5, 3.0, 1.0, reach_in=1.0, reach0_in=0.2, grow_s=0.8, tip_gap_in=0.06),
+        FingerSpec(1.7, 3.0, 0.4, reach_in=0.7, reach0_in=0.1, grow_s=0.6),
+    ]
+    run = run_still(rig, [still("bolt_025", 0.4, 1.0)], seconds=4.0, fingers=fingers)
+    assert run.groups() == [([1], "bolt_025")]
+    assert len(run.records("part")) == 1
+    snaps = [s for s in run.snapshots if s.processed]
+    assert any(s.n_edge >= 2 for s in snaps)  # the bar and its detached tip
+    assert all(not s.hand for s in snaps)  # fingers are not a hand
+    assert all(v.track_id == 1 or v.at_edge for s in snaps for v in s.tracks)
+
+
+def test_moving_fingers_hold_decisions(rig):
+    # Fingers reach in (1 in/s) while a nut is put down, stop short of it, rest and leave. The
+    # nut is decided only once they have been still for after_hand_s; they never become a part.
+    fingers = [FingerSpec(0.3, 2.6, 1.0, reach_in=1.4, reach0_in=0.2, grow_s=1.2)]
+    run = run_still(rig, [still("nut_025", 0.4, 1.3)], seconds=3.4, fingers=fingers)
+    assert run.groups() == [([1], "nut_025")]
+    (group,) = run.records("group")
+    settle = load_config().stationary.after_hand_s
+    assert group["t_closed_ns"] >= START_NS + round((1.5 + settle) * 1e9) - 60_000_000
+    assert any(s.edge_hold for s in run.snapshots if s.processed)
+
+
+def test_a_static_part_at_the_edge_is_reported_never_decided(rig):
+    # A bolt half out of view at the right image edge sits there; a nut elsewhere is still
+    # decided (the static edge blob does not block decisions), the edge bolt never is.
+    edge_x = SCENE.width / SCENE.px_per_in - 0.2
+    parts = [still("bolt_025", 0.2, edge_x), still("nut_0312", 0.8, 1.0)]
+    run = run_still(rig, parts, seconds=3.0)
+    assert [o for _, o in run.groups()] == ["nut_0312"]
+    assert len(run.records("part")) == 1
+    assert run.last().n_edge == 1 and not run.last().edge_hold
 
 
 def test_decision_waits_after_a_hand_leaves(rig):

@@ -56,6 +56,9 @@ class PartSpec:
     # at ``t_off_s`` (None = stays).
     x_in: float | None = None
     t_off_s: float | None = None
+    # (t_start_s, t_end_s, dx_in): a still part slides dx_in along x between those times (pushed
+    # or nudged by hand), then sits still again.
+    slide: tuple[float, float, float] | None = None
 
 
 @dataclass
@@ -68,6 +71,33 @@ class HandSpec:
     x_in: float
     y_in: float = 3.0
     width_in: float = 1.6
+
+
+@dataclass
+class FingerSpec:
+    """Fingers reaching in from the RIGHT image edge on a still belt (smaller than a hand, so
+    never a hand blob): a bar ``width_in`` wide centred ``y_in`` inches below the belt's top
+    edge, reaching ``reach0_in`` into the view at ``t_on_s``, growing to ``reach_in`` over
+    ``grow_s`` and staying until ``t_off_s``. ``tip_gap_in`` > 0 adds a detached fingertip (its
+    own blob) that far beyond the bar's end, as pale real fingers often segment."""
+
+    t_on_s: float
+    t_off_s: float
+    y_in: float
+    reach_in: float
+    reach0_in: float | None = None
+    grow_s: float = 0.0
+    width_in: float = 0.35
+    tip_gap_in: float = 0.0
+    tip_len_in: float = 0.25
+    level: float = 110.0  # gray of the skin (belt 185)
+
+    def reach_at(self, t_s: float) -> float:
+        r0 = self.reach_in if self.reach0_in is None else self.reach0_in
+        if self.grow_s <= 0:
+            return self.reach_in
+        f = min(max((t_s - self.t_on_s) / self.grow_s, 0.0), 1.0)
+        return r0 + (self.reach_in - r0) * f
 
 
 @dataclass
@@ -274,10 +304,15 @@ class SyntheticRenderer:
     """Renders the frame for any time t (seconds). Deterministic for a given config and part list."""
 
     def __init__(
-        self, cfg: SceneConfig, parts: list[PartSpec], hands: list[HandSpec] | None = None
+        self,
+        cfg: SceneConfig,
+        parts: list[PartSpec],
+        hands: list[HandSpec] | None = None,
+        fingers: list[FingerSpec] | None = None,
     ) -> None:
         self.cfg = cfg
         self.hands = hands or []
+        self.fingers = fingers or []
         self.parts = sorted(parts, key=lambda p: p.t_enter_s)
         rng = np.random.default_rng(cfg.seed)
         self._strip = _belt_strip(cfg, rng)
@@ -318,8 +353,12 @@ class SyntheticRenderer:
 
     def part_centre_px(self, part: PartSpec, t_s: float) -> tuple[float, float]:
         if part.x_in is not None:
+            x_in = part.x_in
+            if part.slide is not None:
+                t0, t1, dx = part.slide
+                x_in += dx * min(max((t_s - t0) / max(t1 - t0, 1e-9), 0.0), 1.0)
             return (
-                part.x_in * self.cfg.px_per_in,
+                x_in * self.cfg.px_per_in,
                 self.cfg.belt_top_px + part.y_in * self.cfg.px_per_in,
             )
         return (
@@ -338,6 +377,10 @@ class SyntheticRenderer:
                 else -margin < self.part_centre_px(p, t_s)[0] < self.cfg.width + margin
             )
         ]
+
+    def _draw_finger(self, frame: np.ndarray, finger: FingerSpec, t_s: float) -> None:
+        on = _finger_mask(self.cfg, finger, t_s) > 0
+        frame[on] *= finger.level / self.cfg.belt_level
 
     def render(self, t_s: float, frame_index: int = 0) -> np.ndarray:
         cfg = self.cfg
@@ -383,6 +426,9 @@ class SyntheticRenderer:
                 y1 = round(cfg.belt_top_px + hand.y_in * ppi)
                 region = frame[0:y1, max(x0, 0) : max(x1, 0)]
                 region[:] = 75.0 * region / cfg.belt_level  # skin: much darker than the belt
+        for finger in self.fingers:
+            if finger.t_on_s <= t_s < finger.t_off_s:
+                self._draw_finger(frame, finger, t_s)
         if cfg.blur_sigma_px > 0:
             frame = cv2.GaussianBlur(frame, (0, 0), cfg.blur_sigma_px)
         frame *= self._bands
@@ -394,6 +440,21 @@ class SyntheticRenderer:
             frame *= 1.0 - cfg.flicker_depth * (1.0, 0.6, 0.25)[frame_index % cfg.flicker_every]
         frame += self._noise[frame_index % len(self._noise)]
         return np.clip(frame, 0, 255).astype(np.uint8)
+
+
+def _finger_mask(cfg: SceneConfig, finger: FingerSpec, t_s: float) -> np.ndarray:
+    ppi = cfg.px_per_in
+    mask = np.zeros((cfg.height, cfg.width), np.uint8)
+    y = round(cfg.belt_top_px + finger.y_in * ppi)
+    half = round(finger.width_in * ppi / 2)
+    x_end = round(cfg.width - finger.reach_at(t_s) * ppi)
+    cv2.rectangle(mask, (x_end, y - half), (cfg.width, y + half), 1, -1)
+    cv2.circle(mask, (x_end, y), half, 1, -1)
+    if finger.tip_gap_in > 0:
+        tip_half = round(finger.tip_len_in * ppi / 2)
+        cx = round(x_end - half - finger.tip_gap_in * ppi - tip_half)
+        cv2.ellipse(mask, (cx, y), (tip_half, round(half * 0.8)), 0, 0, 360, 1, -1)
+    return mask
 
 
 def random_parts(

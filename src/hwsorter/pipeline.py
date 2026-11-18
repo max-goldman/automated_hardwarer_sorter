@@ -90,6 +90,7 @@ from .vision.track import Tracker
 log = logging.getLogger(__name__)
 
 _EDGE_SCALE = 4  # stationary edge-complex grid: 1 cell = 4x4 px
+_CELL = np.ones((3, 3), np.uint8)
 STAGES = ("preprocess", "segment", "seam", "track", "features", "fuse", "classify", "decide")
 
 
@@ -350,8 +351,7 @@ class Pipeline:
         self._edge_ref = np.zeros(self._edge_seen.shape, np.uint8)
         self._edge_changed_ns = -(10**18)
         self._n_edge = 0  # edge-complex blobs in the latest processed frame
-        link = max(1, round(stc.edge_link_in * self.px_per_in / _EDGE_SCALE))
-        self._link_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * link + 1,) * 2)
+        self._link_cells = stc.edge_link_in * self.px_per_in / _EDGE_SCALE
         self._hand_mask: np.ndarray | None = None  # stationary: this frame's hand blobs, grid
         self._prepared: Any = None  # stationary: the latest processed frame, for a re-check
         self._last_views: tuple[tuple[TrackView, ...], tuple[GapView, ...]] = ((), ())
@@ -676,7 +676,7 @@ class Pipeline:
             if self._at_edge(b):
                 linked.add(j)
                 cv2.fillPoly(cur, [coarse[j]], 1)
-        near = cv2.dilate(cur, self._link_kernel) > 0
+        near = self._near(cur)
         self._edge_seen[near] = t_ns  # only true edge blobs (and hands) leave a memory
         reach = near | recent
         grown = True
@@ -690,17 +690,29 @@ class Pipeline:
                 if reach[ys, xs].any():
                     linked.add(j)
                     cv2.fillPoly(cur, [c], 1)
-                    reach |= cv2.dilate(cur, self._link_kernel) > 0
+                    reach |= self._near(cur)
                     grown = True
         self._n_edge = len(linked)
+        # Changed: area gained or lost against the complex at its last change, beyond one cell
+        # (4 px) of outline jitter, adds up to more than two dust blobs. Slow motion adds up too.
         ref = self._edge_ref
-        diff = int(np.count_nonzero(cur != ref))
-        size = max(int(np.count_nonzero(cur)), int(np.count_nonzero(ref)), 1)
+        grow = cv2.dilate(ref, _CELL) == 0
+        shrink = cv2.dilate(cur, _CELL) == 0
+        diff = int(np.count_nonzero(cur.astype(bool) & grow))
+        diff += int(np.count_nonzero(ref.astype(bool) & shrink))
         dust = 2 * self.cfg.segment.min_area_in2 * self.px_per_in**2 / s**2  # cells
-        if diff > max(self.cfg.track.max_area_change * size, dust):
+        if diff > dust:
             self._edge_ref = cur
             self._edge_changed_ns = t_ns
         return linked
+
+    def _near(self, mask: np.ndarray) -> np.ndarray:
+        """Grid cells within ``edge_link_in`` of the mask (a distance transform: fast for any
+        radius)."""
+        if not mask.any():
+            return np.zeros(mask.shape, bool)
+        dist = cv2.distanceTransform((mask == 0).astype(np.uint8), cv2.DIST_L2, 3)
+        return dist <= self._link_cells
 
     def _edge_settled(self, t_ns: int) -> bool:
         """The edge complex has not changed for ``stationary.after_hand_s``."""
