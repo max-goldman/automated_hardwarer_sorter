@@ -7,7 +7,7 @@ from hwsorter.contracts import RULES, Output, PartClass, TrackFlag, Verdict
 from hwsorter.decide import Decider, Grouper, correct_output, decide
 from hwsorter.decide.rules import decide_with_rule
 
-B, N, W = PartClass.BOLT_025, PartClass.NUT_025, PartClass.WASHER_0375
+B, N, W = PartClass.BOLT_025, PartClass.NUT_025, PartClass.WASHER_0312
 CONF, OOS, UNR = Verdict.CONFIDENT, Verdict.OUT_OF_SCOPE, Verdict.UNRESOLVED
 
 
@@ -88,7 +88,7 @@ def test_decide_empty_raises():
     [
         ([B], Output.BOLT_025),
         ([None], Output.MISC),
-        ([W, W, W], Output.WASHER_0375),
+        ([W, W, W], Output.WASHER_0312),
         ([B, N], Output.REWORK),
         ([B, None], Output.REWORK),
         ([None, None], Output.MISC),

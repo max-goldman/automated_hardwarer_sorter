@@ -368,9 +368,9 @@ def test_ui_keys_label_save_and_go_back(session, tmp_path, qapp):
         n = len(stored(path))
         assert win.index == 2 and len(stored(path)) == n
         QTest.keyClick(win, Qt.Key_Left)
-        QTest.keyClick(win, Qt.Key_2)  # correct part 2 -> bolt_0375
+        QTest.keyClick(win, Qt.Key_2)  # correct part 2 -> bolt_0312
         recs = stored(path)
-        assert recs[-1]["part_class"] == "bolt_0375" and recs[-1]["key"] == recs[1]["key"]
+        assert recs[-1]["part_class"] == "bolt_0312" and recs[-1]["key"] == recs[1]["key"]
         QTest.keyClick(win, Qt.Key_Left)  # now on part 2 (index 1), after the auto-advance
         QTest.keyClick(win, Qt.Key_Left)  # part 1
         QTest.keyClick(win, Qt.Key_Delete)
@@ -381,7 +381,7 @@ def test_ui_keys_label_save_and_go_back(session, tmp_path, qapp):
     # resume in a fresh window
     win2 = open_window(session, path)
     try:
-        assert win2.grading.label_of(1).part_class == "bolt_0375"
+        assert win2.grading.label_of(1).part_class == "bolt_0312"
         assert win2.grading.label_of(0) is None
     finally:
         win2.close()

@@ -104,7 +104,7 @@ def test_golden_scenes_cover_the_decision_kinds():
             if rec["kind"] == "group":
                 outputs.add(rec["output"])
     assert {"session_start", "part", "group", "send", "session_end"} <= kinds
-    assert {"rework", "misc", "bolt_025", "nut_0375", "washer_025"} <= outputs
+    assert {"rework", "misc", "bolt_025", "nut_0312", "washer_025"} <= outputs
 
 
 def test_replay_compare_matches_golden(golden_recordings, capsys):

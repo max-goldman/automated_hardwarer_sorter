@@ -18,19 +18,31 @@ import numpy as np
 
 from .frames import EndOfStream, Frame, FrameSource, SourceInfo, SourceStats
 
-# Nominal dimensions in inches (project brief, "Parts in scope").
+# Dimensions in inches. In-scope sizes are 1/4-20 and 5/16-18 (hex bolts x 1 in, nylon-insert
+# lock nuts, SAE flat washers); nominal sizes from the brief, bolt heads and nut thickness
+# nudged to the user's caliper measurements (hardware-reference-pics). ``thick`` is the nut
+# thickness (side pose); ``nylon`` is the diameter of the lighter nylon-insert annulus seen
+# from the top, drawn only while ``NYLON_INSERT`` is True.
 PART_DIMS: dict[str, dict[str, float]] = {
-    "bolt_025": {"shank": 0.250, "head_w": 0.505, "head_h": 0.156, "length": 1.00, "tpi": 20},
+    "bolt_025": {"shank": 0.250, "head_w": 0.505, "head_h": 0.170, "length": 1.00, "tpi": 20},
+    "bolt_0312": {"shank": 0.3125, "head_w": 0.577, "head_h": 0.214, "length": 1.00, "tpi": 18},
+    "nut_025": {"af": 0.438, "bore": 0.201, "thick": 0.311, "nylon": 0.350},
+    "nut_0312": {"af": 0.500, "bore": 0.257, "thick": 0.347, "nylon": 0.400},
+    "washer_025": {"od": 0.625, "id": 0.283},
+    "washer_0312": {"od": 0.750, "id": 0.346},
+    # Out-of-scope items for tests: the 3/8 parts are the natural near-misses of 5/16.
     "bolt_0375": {"shank": 0.375, "head_w": 0.650, "head_h": 0.234, "length": 1.00, "tpi": 16},
-    "nut_025": {"af": 0.438, "bore": 0.201},
-    "nut_0375": {"af": 0.563, "bore": 0.313},
-    "washer_025": {"od": 0.625, "id": 0.281},
+    "nut_0375": {"af": 0.563, "bore": 0.313, "thick": 0.395, "nylon": 0.450},
     "washer_0375": {"od": 0.812, "id": 0.406},
-    # Out-of-scope items for tests.
     "coin": {"od": 0.705},
-    "washer_0312": {"od": 0.688, "id": 0.344},
+    "washer_oos_0688": {"od": 0.688, "id": 0.344},
 }
-PART_KINDS = tuple(k for k in PART_DIMS if k not in ("coin", "washer_0312"))
+OUT_OF_SCOPE = ("coin", "washer_oos_0688", "bolt_0375", "nut_0375", "washer_0375")
+NYLON_INSERT = (
+    False  # draw the nylon annulus on nuts (off: it splits a nut blob at the seam, see task 024)
+)
+NYLON_LEVEL = 150.0  # gray of the nylon insert (belt 185); kept below hole_bright_threshold x belt
+PART_KINDS = tuple(k for k in PART_DIMS if k not in OUT_OF_SCOPE)
 
 
 @dataclass
@@ -113,7 +125,7 @@ def _render_part(
             cv2.circle(mask, centre, r, 255, -1, lineType=cv2.LINE_AA)
 
     if kind.startswith("washer") or kind == "coin":
-        level = {"washer_025": 72.0, "washer_0375": 112.0}.get(kind, 95.0)
+        level = {"washer_025": 72.0, "washer_0312": 112.0, "washer_0375": 112.0}.get(kind, 95.0)
         disc(d["od"] / 2, level)
         if "id" in d:
             disc(d["id"] / 2, 0.0, clear=True)  # hole: belt shows through
@@ -125,6 +137,8 @@ def _render_part(
         ]
         poly(hexagon, 135.0)  # chamfered rim, lighter
         disc(d["af"] / 2 * 0.93, 88.0, on_mask=False)  # face
+        if NYLON_INSERT and d.get("nylon"):
+            disc(d["nylon"] / 2, NYLON_LEVEL, on_mask=False)  # nylon insert, lighter than the face
         disc(d["bore"] / 2 * 1.25, 120.0, on_mask=False)  # countersink ring
         disc(d["bore"] / 2, 38.0, on_mask=False)  # dark threaded bore
     elif kind.startswith("bolt"):
@@ -411,7 +425,7 @@ def still_scene(cfg: SceneConfig) -> tuple[list[PartSpec], list[HandSpec], float
       taken away (the bolt's group is re-decided).
 
     Returns (parts, hands, duration_s)."""
-    kinds = ("bolt_025", "nut_0375", "washer_025", "bolt_0375", "nut_025", "washer_0375")
+    kinds = ("bolt_025", "nut_0312", "washer_025", "bolt_0312", "nut_025", "washer_0312")
     parts = [
         PartSpec(k, 0.6 + 1.5 * i, 1.0, 25.0 * i, x_in=1.75, t_off_s=0.6 + 1.5 * i + 1.2)
         for i, k in enumerate(kinds)

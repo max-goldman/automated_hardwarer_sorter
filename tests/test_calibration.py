@@ -150,7 +150,7 @@ def test_sharpness_ordering_and_verdicts():
 
 def test_edge_width_on_synthetic_part_matches_scene_blur():
     scene = SceneConfig(blur_sigma_px=1.4, seam=False, specks=0)
-    frame = SyntheticRenderer(scene, [PartSpec("washer_0375", 0.0, 1.0)]).render(0.45)
+    frame = SyntheticRenderer(scene, [PartSpec("washer_0312", 0.0, 1.0)]).render(0.45)
     result = measure_sharpness(
         frame, roi=(scene.belt_top_px + 10, scene.belt_bottom_px - 10, 0, scene.width)
     )
@@ -179,7 +179,7 @@ def test_flicker_stats_match_measured_pattern():
 def test_belt_edges_found_on_synthetic_frame_with_parts_and_seam():
     scene = SceneConfig(seam_at_in=50.5)
     frame = SyntheticRenderer(
-        scene, [PartSpec("bolt_0375", 0.1, 1.0, 30), PartSpec("nut_025", 0.4, 0.4, 0)]
+        scene, [PartSpec("bolt_0312", 0.1, 1.0, 30), PartSpec("nut_025", 0.4, 0.4, 0)]
     ).render(0.86)
     top, bottom, found = find_belt_edges(frame, margin_px=0)
     assert found and abs(top - scene.belt_top_px) <= 4 and abs(bottom - scene.belt_bottom_px) <= 4

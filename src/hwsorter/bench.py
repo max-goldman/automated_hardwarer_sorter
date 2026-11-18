@@ -400,23 +400,26 @@ def _golden_parts() -> dict[str, list[Any]]:
             PartSpec("bolt_025", 0.3, 1.0, 40.0),
             PartSpec("nut_025", 1.0, 1.3, 10.0),
             PartSpec("washer_025", 1.7, 0.9, 0.0),
-            PartSpec("bolt_0375", 2.4, 1.1, 200.0),
-            PartSpec("nut_0375", 3.1, 1.0, 20.0),
-            PartSpec("washer_0375", 3.8, 1.2, 0.0),
+            PartSpec("bolt_0312", 2.4, 1.1, 200.0),
+            PartSpec("nut_0312", 3.1, 1.0, 20.0),
+            PartSpec("washer_0312", 3.8, 1.2, 0.0),
         ],
         # two close parts (a rework group), then singulated parts
         "rework_group": [
-            PartSpec("nut_0375", 0.3, 1.0, 10.0),
+            PartSpec("nut_0312", 0.3, 1.0, 10.0),
             PartSpec("washer_025", 0.5, 1.2, 0.0),
             PartSpec("bolt_025", 1.6, 1.0, 120.0),
-            PartSpec("washer_0375", 2.6, 1.0, 0.0),
+            PartSpec("washer_0312", 2.6, 1.0, 0.0),
         ],
         # out-of-scope near misses go to MISC
         "out_of_scope": [
             PartSpec("coin", 0.3, 1.0, 0.0),
             PartSpec("nut_025", 1.0, 1.0, 30.0),
-            PartSpec("washer_0312", 1.7, 1.1, 0.0),
+            PartSpec("washer_oos_0688", 1.7, 1.1, 0.0),
             PartSpec("washer_025", 2.4, 0.9, 0.0),
+            PartSpec("washer_0375", 3.1, 1.2, 0.0),
+            PartSpec("nut_0375", 3.8, 1.0, 20.0),
+            PartSpec("bolt_0375", 4.5, 1.1, 150.0),
         ],
     }
 
@@ -433,22 +436,22 @@ def golden_parts(name: str) -> list[Any]:
 KEY_FEATURES: dict[str, dict[str, str]] = {
     # feature name -> nominal dimension key in synthetic.PART_DIMS
     "bolt_025": {"shank_width_in": "shank", "head_width_in": "head_w", "total_length_in": "length"},
-    "bolt_0375": {
+    "bolt_0312": {
         "shank_width_in": "shank",
         "head_width_in": "head_w",
         "total_length_in": "length",
     },
     "nut_025": {"across_flats_in": "af", "hole_diameter_in": "bore"},
-    "nut_0375": {"across_flats_in": "af", "hole_diameter_in": "bore"},
+    "nut_0312": {"across_flats_in": "af", "hole_diameter_in": "bore"},
     "washer_025": {"minrect_long_in": "od", "hole_diameter_in": "id"},
-    "washer_0375": {"minrect_long_in": "od", "hole_diameter_in": "id"},
+    "washer_0312": {"minrect_long_in": "od", "hole_diameter_in": "id"},
 }
-OUT_OF_SCOPE_KINDS = ("coin", "washer_0312")
+OUT_OF_SCOPE_KINDS = ("coin", "washer_oos_0688", "washer_0375", "nut_0375", "bolt_0375")
 
 
 def stride_parts(n_parts: int = 60, seed: int = 11, spacing_s: float = 0.7) -> list[Any]:
     """Deterministic singulated stream: all six classes equally, plus ~1/6 near-miss
-    out-of-scope parts (coin, 5/16 washer), shuffled."""
+    out-of-scope parts (coin, 0.688 washer, 3/8 bolt, nut and washer), shuffled."""
     from .synthetic import PART_KINDS, PartSpec
 
     rng = np.random.default_rng(seed)

@@ -47,22 +47,22 @@ One fixed mono global-shutter camera sees each part for roughly 60 to 85 frames.
 | Motion | 4 in/s is about 1,500 px/s, or about 13 px between frames | Belt speed is held steady. Each 1 ms of exposure smears a part by about 1.5 px; keep exposure at or under about 0.5 to 1 ms. |
 | Time in full view | About 0.5 s for a 1 in bolt, 0.6 to 0.7 s for nuts and washers | Up to about three parts can be in view at once at the target spacing. |
 
-**Lighting:** the samples use the intended lighting on the real belt. Several lights cast soft cross-shaped shadows around each part, and the white belt has small dark specks. Gray level varies by part (the 1/4 in washer images far darker than the 3/8 in one), so never use brightness as an identity feature.
+**Lighting:** the samples use the intended lighting on the real belt. Several lights cast soft cross-shaped shadows around each part, and the white belt has small dark specks. Gray level varies by part (the 1/4 in washer images far darker than the 5/16 in one), so never use brightness as an identity feature.
 
 **Sample image caveats:** the six samples were taken with the Mac Photo Booth app from the camera's output, with parts stationary at the intended working distance. They show the full view but were saved as 1440 x 960 RGB, not the camera's 1280 x 800 mono, and Photo Booth may have mirrored them. Focus may be slightly soft. Use them to understand appearance, not for calibration or tuning.
 
 ## Parts in scope
 
-The prototype sorts six part types, five of each, so one test run is 30 parts. Size alone does not separate every pair: the 1/4 in washer (0.625 OD) and the 3/8 in nut (0.650 across corners) are nearly the same outer size. Tell those two apart by outline (round versus hex) and hole.
+The prototype sorts six part types, five of each, so one test run is 30 parts. Size alone does not separate every pair: the 1/4 in washer (0.625 OD) and the 5/16 in nut (0.577 across corners) are nearly the same outer size. Tell those two apart by outline (round versus hex) and hole.
 
 | Part | Sample image | Nominal key dimensions (in) | Measured in sample (in) |
 | --- | --- | --- | --- |
 | 1/4-20 x 1 in hex bolt | bolt-0.25in-20-1in.jpg | Shank 0.250; head 0.438 across flats, 0.505 across corners, 0.156 tall; 1.00 under head | 1.26 x 0.52 bounding box |
-| 3/8-16 x 1 in hex bolt | bolt-0.375in-16-1in.jpg | Shank 0.375; head 0.563 across flats, 0.650 across corners, 0.234 tall; 1.00 under head | 1.35 x 0.62 bounding box |
-| 1/4-20 hex nut | nut-0.25in-20.jpg | 0.438 across flats, 0.505 across corners, 0.219 thick | 0.51 x 0.46 |
-| 3/8-16 hex nut | nut-0.375in-16.jpg | 0.563 across flats, 0.650 across corners, 0.328 thick | 0.60 x 0.54 |
+| 5/16-18 x 1 in hex bolt | bolt-0.375in-16-1in.jpg | Shank 0.3125; head 0.500 across flats, 0.577 across corners, 0.211 tall; 1.00 under head | 1.31 x 0.58 bounding box |
+| 1/4-20 hex nut | nut-0.25in-20.jpg | 0.438 across flats, 0.505 across corners, 0.311 thick (nylon-insert, measured) | 0.51 x 0.46 |
+| 5/16-18 hex nut | nut-0.375in-16.jpg | 0.500 across flats, 0.577 across corners, 0.347 thick (nylon-insert, measured) | 0.58 x 0.50 |
 | 1/4 in flat washer | washer-0.25in.jpg | SAE: 0.281 ID, 0.625 OD | 0.67 OD |
-| 3/8 in flat washer | washer-0.375in.jpg | SAE: 0.406 ID, 0.812 OD | 0.80 OD |
+| 5/16 in flat washer | washer-0.375in.jpg | SAE: 0.344 ID, 0.750 OD | 0.75 OD |
 
 Nominal values are standard inch hex and SAE washer sizes, not measurements of these parts. The sample measurements are rough bounding boxes at about 440 px/in and include blur and shadow edges. Washers are SAE pattern for this version, confirmed by the user.
 
@@ -76,15 +76,15 @@ Stationary parts on the real belt under the intended lighting, captured through 
 
 &#91;image: bolt-0.25in-20-1in.jpg: 1/4-20 x 1 in hex bolt\]
 
-&#91;image: bolt-0.375in-16-1in.jpg: 3/8-16 x 1 in hex bolt\]
+&#91;image: bolt-0.375in-16-1in.jpg: 5/16-18 x 1 in hex bolt\]
 
 &#91;image: nut-0.25in-20.jpg: 1/4-20 hex nut\]
 
-&#91;image: nut-0.375in-16.jpg: 3/8-16 hex nut\]
+&#91;image: nut-0.375in-16.jpg: 5/16-18 hex nut\]
 
 &#91;image: washer-0.25in.jpg: 1/4 in flat washer\]
 
-&#91;image: washer-0.375in.jpg: 3/8 in flat washer\]
+&#91;image: washer-0.375in.jpg: 5/16 in flat washer\]
 
 ## Output categories and decision rules
 
@@ -251,7 +251,7 @@ The camera and the clock carry most of the risk; check the first two rows in the
 | Real camera modes | The retail listing says 720p at 120 fps. At 1280 x 720 the full belt width may not fit. | Enumerate modes and measure the achieved fps on both machines before building on them. |
 | MJPG decode cost | 120 compressed frames per second cost CPU time before any vision work. | Decode on the capture thread and include it in the per-stage timings on the Dell. |
 | Motion blur | Long exposure smears parts by about 1.5 px per ms. | Short exposure with enough light; the calibration tool reports blur. |
-| Lens distortion and parallax | Taller features sit closer to the lens and look larger. With the lens about 150 mm above the belt, a 3/8 in bolt head on its side (about 0.65 in high) looks roughly 10 to 12% larger than it would at belt level. | Correct distortion from a calibration target. Set each part's expected ranges from real examples, not nominal sizes. |
+| Lens distortion and parallax | Taller features sit closer to the lens and look larger. With the lens about 150 mm above the belt, a 5/16 in bolt head on its side (about 0.58 in high) looks roughly 10 to 12% larger than it would at belt level. | Correct distortion from a calibration target. Set each part's expected ranges from real examples, not nominal sizes. |
 | Parts settling after the transfer | Parts may still tumble or roll as they enter the view. | Prefer frames where a part moves at belt speed; flag parts whose outline keeps changing. |
 | Send-time jitter | OS scheduling, especially on Windows, can delay a send. | Dedicated scheduler thread and high-resolution timing; log the error of every send. |
 | Camera latency | Frames arrive some unknown time after exposure, which shifts every predicted drop time. | Calibrate it as a single offset and expose it in config. |

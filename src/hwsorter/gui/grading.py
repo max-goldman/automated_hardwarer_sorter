@@ -38,11 +38,11 @@ from ..grading import (
 
 CLASS_KEYS = {
     Qt.Key_1: PartClass.BOLT_025,
-    Qt.Key_2: PartClass.BOLT_0375,
+    Qt.Key_2: PartClass.BOLT_0312,
     Qt.Key_3: PartClass.NUT_025,
-    Qt.Key_4: PartClass.NUT_0375,
+    Qt.Key_4: PartClass.NUT_0312,
     Qt.Key_5: PartClass.WASHER_025,
-    Qt.Key_6: PartClass.WASHER_0375,
+    Qt.Key_6: PartClass.WASHER_0312,
 }
 OOS_KEYS = (Qt.Key_0, Qt.Key_O)
 ENTER_KEYS = (Qt.Key_Return, Qt.Key_Enter)

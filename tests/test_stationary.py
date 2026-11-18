@@ -93,7 +93,7 @@ def still(kind: str, t: float, x: float, off: float | None = None, angle: float 
 
 
 def test_six_classes_one_at_a_time(rig):
-    kinds = ("bolt_025", "nut_0375", "washer_025", "bolt_0375", "nut_025", "washer_0375")
+    kinds = ("bolt_025", "nut_0312", "washer_025", "bolt_0312", "nut_025", "washer_0312")
     # Each part is gone for longer than stationary.missed_s before the next one is placed (a
     # removal, not a quick swap: a hex nut and a washer on the same spot overlap ~90%, right at
     # the tracker's reappear-IoU gate, so a sub-missed_s swap between them is not this test).
@@ -122,11 +122,11 @@ def test_no_sends_and_decisions_are_announced(rig):
 
 
 def test_a_part_is_decided_once_while_it_sits(rig):
-    run = run_still(rig, [still("bolt_0375", 0.4, 1.75)], seconds=6.0)
-    assert run.groups() == [([1], "bolt_0375")]
+    run = run_still(rig, [still("bolt_0312", 0.4, 1.75)], seconds=6.0)
+    assert run.groups() == [([1], "bolt_0312")]
     tracks = [v for s in run.snapshots[-20:] for v in s.tracks]
     assert tracks and all(v.track_id == 1 and v.measured for v in tracks)
-    assert all(v.group_output is Output.BOLT_0375 for v in tracks)
+    assert all(v.group_output is Output.BOLT_0312 for v in tracks)
 
 
 def test_two_parts_close_together_are_one_rework_group(rig):
@@ -139,11 +139,11 @@ def test_two_parts_close_together_are_one_rework_group(rig):
 
 def test_removed_part_does_not_redecide_untouched_parts(rig):
     parts = [
-        still("nut_0375", 0.4, 0.8),
+        still("nut_0312", 0.4, 0.8),
         still("washer_025", 0.4, 2.9, off=2.4),  # taken away; far enough to be its own group
     ]
     run = run_still(rig, parts, seconds=4.2)
-    assert run.groups() == [([1], "nut_0375"), ([2], "washer_025")]  # nothing new after the removal
+    assert run.groups() == [([1], "nut_0312"), ([2], "washer_025")]  # nothing new after the removal
     assert len(run.records("part")) == 2
     assert [v.track_id for v in run.last().tracks] == [1]
 
@@ -163,22 +163,22 @@ def test_swap_before_measure_is_decided_as_the_new_part(rig):
     # settle_s), taken away, and B put down in its place. B must get a fresh track.
     parts = [
         still("bolt_025", 0.40, 1.75, off=0.8),
-        still("washer_0375", 0.85, 1.75),
+        still("washer_0312", 0.85, 1.75),
     ]
     run = run_still(rig, parts, [HandSpec(0.45, 1.0, 1.75, y_in=1.2)], seconds=3.5)
-    assert run.groups() == [([2], "washer_0375")]
+    assert run.groups() == [([2], "washer_0312")]
     (part,) = run.records("part")
-    assert part["track_id"] == 2 and part["part_class"] == "washer_0375"
+    assert part["track_id"] == 2 and part["part_class"] == "washer_0312"
 
 
 def test_fast_swap_under_a_short_hand_is_a_new_track(rig):
     # The hand is out of view for less than the reappear gap, but A was unseen while it was in.
     parts = [
         still("bolt_025", 0.40, 1.75, off=0.62),
-        still("washer_0375", 0.66, 1.75),
+        still("washer_0312", 0.66, 1.75),
     ]
     run = run_still(rig, parts, [HandSpec(0.55, 0.64, 1.75, y_in=1.2)], seconds=3.5)
-    assert run.groups() == [([2], "washer_0375")]
+    assert run.groups() == [([2], "washer_0312")]
     assert run.records("part")[0]["track_id"] == 2
 
 
@@ -255,11 +255,11 @@ def test_part_placed_under_a_hand_is_decided_after_it_leaves(rig):
     t_hand = (0.4, 2.0)
     run = run_still(
         rig,
-        [still("washer_0375", 0.4, 1.2)],
+        [still("washer_0312", 0.4, 1.2)],
         [HandSpec(*t_hand, 1.2, y_in=1.2)],
         seconds=4.0,
     )
-    assert run.groups() == [([1], "washer_0375")]
+    assert run.groups() == [([1], "washer_0312")]
     group = run.records("group")[0]
     assert group["t_closed_ns"] >= START_NS + round(t_hand[1] * 1e9)
     assert run.records("part")[0]["track_id"] == 1
@@ -284,11 +284,11 @@ def test_demo_scene_decisions_and_determinism(rig):
     outs = [o for _, o in first.groups()]
     assert outs == [
         "bolt_025",
-        "nut_0375",
+        "nut_0312",
         "washer_025",
-        "bolt_0375",
+        "bolt_0312",
         "nut_025",
-        "washer_0375",
+        "washer_0312",
         "washer_025",
         "bolt_025",
         "rework",
@@ -323,11 +323,11 @@ def test_cli_run_stationary_then_grade_and_report(tmp_path, capsys):
     assert "DECISION group 1 [#1] -> bolt_025 (lone_confident)" in out
     assert "SEND" not in out
     session = load_session(tmp_path)
-    assert [g.output for g in session.groups] == ["bolt_025", "nut_0375", "washer_025"]
+    assert [g.output for g in session.groups] == ["bolt_025", "nut_0312", "washer_025"]
     assert all(g.sent_output is None for g in session.groups)
     assert session.start["config"]["belt"]["mode"] == "stationary"
 
-    truth = {1: "bolt_025", 2: "nut_0375", 3: "washer_025"}
+    truth = {1: "bolt_025", 2: "nut_0312", 3: "washer_025"}
     store = LabelStore(tmp_path / "labels.jsonl")
     for p in session.parts:
         store.put(

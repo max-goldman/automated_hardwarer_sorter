@@ -29,7 +29,7 @@ from hwsorter.synthetic import PART_KINDS, PartSpec
 @pytest.fixture(scope="module")
 def small_recording(tmp_path_factory):
     cfg = load_config()
-    parts = [PartSpec("nut_025", 0.3, 1.0, 10.0), PartSpec("washer_0375", 1.0, 1.2, 0.0)]
+    parts = [PartSpec("nut_025", 0.3, 1.0, 10.0), PartSpec("washer_0312", 1.0, 1.2, 0.0)]
     folder = tmp_path_factory.mktemp("bench") / "rec"
     return write_synthetic_recording(folder, parts, scene_for_cfg(cfg))
 
