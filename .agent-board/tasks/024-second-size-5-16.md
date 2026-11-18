@@ -1,6 +1,6 @@
 # 024 second part size is 5/16-18, not 3/8 (user decision 2026-11-17)
 
-Status: IN_PROGRESS
+Status: DONE (merged)
 Dependencies: none. Runs in parallel with 023 (real-image robustness); whichever merges second merges develop and regenerates goldens.
 Branch: `task/024-second-size-5-16` (from `develop`)
 Reviewer: Opus (contracts change).
@@ -37,3 +37,5 @@ Round 1 worker b3badb1: pytest exit=0 (2 xfail incl. new ghost repro), ruff/form
 
 ## Review Notes
 Round 1 (fresh Opus): CHANGES REQUIRED. Rename complete; dims correct; goldens legit; brief edits size-only. CONTAMINATION: nut_025/nut_0312 ranges touch (AF 0.47/0.47, area 0.19/0.19, side 0.33/0.33) -> a +5% scale makes nut_025 CONFIDENT nut_0312. Required: gapped nut ranges (reviewer-tested set) + general scale-sweep safety test (no confident cross-class flip within ±7%). Also: strict xfail for the seam ghost, the brief's 1/4 nut thickness 0.311, a design.md near-miss limit. Pre-existing seam ghost (track 14 -> 2 parts to REWORK in the 30-part CLI run) is owned by 023.
+
+Round 2 (f9530e2) and round 3 (3074185): gapped nut ranges, test_library_safety.py (no wrong CONFIDENT within ±7%), merged 023, ghost test passing, circularity nut [0.88,0.965] / washer [0.975,1.02], bolt sizes separated by shank only. Real: all six recordings CONFIDENT and correct (tightest real margin: nut circularity 0.952 vs 0.965). Round 3 review: orchestrator — merged, pytest exit=0, ruff/format exit=0; stationary replays of the six real recordings give bolt_025, bolt_0312, nut_025, nut_0312, washer_025, washer_0312. Known: CLI 30-part synthetic run group 28 (washer ON_SEAM, 2 frames) -> misc, pre-existing seam issue (follow-up).
