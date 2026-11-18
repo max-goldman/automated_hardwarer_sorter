@@ -46,28 +46,28 @@ parts:
     output_code: 3
     poses:
       flat:
-        area_in2: [0.145, 0.19]
-        across_flats_in: [0.405, 0.47]
+        area_in2: [0.145, 0.186]
+        across_flats_in: [0.405, 0.466]
         hex_harmonic: [0.025, 0.095]
         circularity: [0.85, 0.97]
         hole_kind: [1.5, 2.5]
       side:  # rectangle outline: width = across flats or corners, height = 0.311 nyloc thick
         minrect_long_in: [0.41, 0.53]
-        minrect_short_in: [0.285, 0.33]
+        minrect_short_in: [0.285, 0.326]
         hole_kind: [-0.5, 0.5]
   nut_0312:
     display_name: "5/16-18 nyloc nut"
     output_code: 4
     poses:
       flat:
-        area_in2: [0.19, 0.25]
-        across_flats_in: [0.47, 0.535]
+        area_in2: [0.200, 0.25]
+        across_flats_in: [0.478, 0.535]
         hex_harmonic: [0.025, 0.095]
         circularity: [0.85, 0.97]
         hole_kind: [1.5, 2.5]
       side:  # rectangle outline: width = across flats or corners, height = 0.347 nyloc thick
         minrect_long_in: [0.47, 0.60]
-        minrect_short_in: [0.33, 0.365]
+        minrect_short_in: [0.334, 0.365]
         hole_kind: [-0.5, 0.5]
   washer_025:
     display_name: "1/4 flat washer"

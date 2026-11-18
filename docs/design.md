@@ -180,6 +180,14 @@ same, and a moving session log omits the new config keys so it stays byte-identi
   handling by decision, the fix is in hardware. The hand rule needs the arm to touch the image or
   belt edge.
 
+- **Size-range margins (1/4 vs 5/16).** The two sizes are only ~0.06 in apart, so a uniform scale
+  error flips a class eventually. `tests/test_library_safety.py` scales every class and pose
+  from x0.90 to x1.10 and asserts no wrong CONFIDENT within +-7%. Nearest flips (scale at which a
+  part is first CONFIDENT as the other size): bolt_0312 x0.90, nut_025 x1.10 (flat) / x1.075
+  (side), nut_0312 x0.925 (flat) / x0.92 (side); bolt_025 and both washers do not flip in the
+  range. Between the sizes there is an UNRESOLVED band. A 3/8 nut reading -7% or a 3/8 washer
+  reading -5% would become CONFIDENT 5/16; that is accepted only because 3/8 parts are not in the
+  input set.
 - **Synthetic-only validation.** This session had no camera. Everything was built and tested
   with `synthetic.py` scenes, generated recordings and unit tests. Library ranges come from
   nominal and synthetic measurements and are not calibrated to the real optics. Real-camera

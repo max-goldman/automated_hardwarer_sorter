@@ -492,7 +492,7 @@ def test_replay_pipeline_is_deterministic(rig, tmp_path):
 @pytest.mark.xfail(
     reason="pre-existing (also on develop): the seam end at the belt edge makes a 0-frame "
     "ON_SEAM/TOUCHES_EDGE track on an empty belt; belongs to the seam/segment work (task 023)",
-    strict=False,
+    strict=True,
 )
 def test_empty_belt_seam_makes_no_ghost_track(rig):
     run = run_scene(rig, [], n_seconds=16.0)

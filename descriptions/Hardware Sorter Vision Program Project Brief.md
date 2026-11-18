@@ -59,7 +59,7 @@ The prototype sorts six part types, five of each, so one test run is 30 parts. S
 | --- | --- | --- | --- |
 | 1/4-20 x 1 in hex bolt | bolt-0.25in-20-1in.jpg | Shank 0.250; head 0.438 across flats, 0.505 across corners, 0.156 tall; 1.00 under head | 1.26 x 0.52 bounding box |
 | 5/16-18 x 1 in hex bolt | bolt-0.375in-16-1in.jpg | Shank 0.3125; head 0.500 across flats, 0.577 across corners, 0.211 tall; 1.00 under head | 1.31 x 0.58 bounding box |
-| 1/4-20 hex nut | nut-0.25in-20.jpg | 0.438 across flats, 0.505 across corners, 0.219 thick | 0.51 x 0.46 |
+| 1/4-20 hex nut | nut-0.25in-20.jpg | 0.438 across flats, 0.505 across corners, 0.311 thick (nylon-insert, measured) | 0.51 x 0.46 |
 | 5/16-18 hex nut | nut-0.375in-16.jpg | 0.500 across flats, 0.577 across corners, 0.347 thick (nylon-insert, measured) | 0.58 x 0.50 |
 | 1/4 in flat washer | washer-0.25in.jpg | SAE: 0.281 ID, 0.625 OD | 0.67 OD |
 | 5/16 in flat washer | washer-0.375in.jpg | SAE: 0.344 ID, 0.750 OD | 0.75 OD |
