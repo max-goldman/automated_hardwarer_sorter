@@ -32,7 +32,7 @@ src/hwsorter/vision/segment.py (Preprocessor + segment), vision/seam.py (false-p
 pytest fully green; ruff check + format --check exit 0; `sorter bench synthetic --parts 30` timing; and for EACH of the six real recordings: the `sorter measure` part table + per-feature block (before and after), and the overlay PNG paths. Report which parts are now CONFIDENT/correct and which remaining misses are range issues (to be fixed with caliper truths).
 
 ## Verification Output
-(orchestrator pastes the worker's report)
+Worker (Opus), f5b703b: pytest exit=0; ruff/format exit=0; bench PASS (per captured frame mean 4.00 -> 3.65 ms, p99 18.8 -> 16.6). Real: bolt025/nut025/washer025 CONFIDENT correct (were UNRESOLVED/OOS/OOS); the 5/16 three are UNRESOLVED against the old 3/8 library (range issue, task 024). Washer OD 0.6246/0.7517 vs calipers 0.6244/0.7508 (scale k=1.000, edge bias +-0.2 px). Thick parts +3-5% = height parallax (implied camera height ~8.2 in). Seam: 0/200 false hits on all; seam ghost fixed (min_piece_in2). Goldens regenerated (verdicts unchanged). test_six_classes_one_at_a_time: parts removed 0.6 s, because of the tracker IoU weakness (nut->washer swap IoU 0.90).
 
 ## Review Notes
 (reviewer only)
